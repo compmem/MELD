@@ -9,4 +9,4 @@
 
 from . import cluster, lmer, meld, nonparam, stat_helper
 
-__all__ = ['cluster', 'lmer', 'meld','nonparam','stat_helper']
+__all__ = ['cluster', 'meld', 'nonparam', 'stat_helper']
