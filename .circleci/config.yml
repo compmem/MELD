@@ -6,7 +6,7 @@ jobs:
       - checkout
       - run: docker login -u $DOCKER_USER -p $DOCKER_PASS
 
-      - run: docker build -t compmem/$CIRCLE_PROJECT_REPONAME:$CIRCLE_BUILD_NUM-${CIRCLE_SHA1:0:6} .
+      - run: docker build -t compmem/meld:$CIRCLE_BUILD_NUM-${CIRCLE_SHA1:0:6} .
 
-      - run: docker push compmem/$CIRCLE_PROJECT_REPONAME
+      - run: docker push compmem/meld
     
