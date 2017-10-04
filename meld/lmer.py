@@ -8,6 +8,8 @@
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ##
 
 from __future__ import print_function
+from builtins import range
+
 import os
 import sys
 import time
@@ -27,20 +29,30 @@ r = rpy2.robjects.r
 from rpy2.robjects.packages import importr
 from rpy2.robjects import Formula, FactorVector
 from rpy2.robjects.environments import Environment
-from rpy2.robjects.vectors import DataFrame, Vector, FloatVector
-from rpy2.rinterface import MissingArg, SexpVector
+from rpy2.robjects.vectors import DataFrame, Vector, FloatVector, StrVector
+from rpy2.rinterface import MissingArg, SexpVector, RRuntimeError
 
 # Make it so we can send numpy arrays to R
 import rpy2.robjects.numpy2ri
 rpy2.robjects.numpy2ri.activate()
 
+def get_rpackage(packname):
+    try:
+        result = importr(packname)
+    except RRuntimeError:
+        utils = importr('utils')
+        utils.chooseCRANmirror(ind=1)
+        utils.install_packages(packname)
+        result = importr(packname)
+    return result
+
 # load some required packages
 # PBS: Eventually we should try/except these to get people
 # to install missing packages
-lme4 = importr('lme4')
-rstats = importr('stats')
-fdrtool = importr('fdrtool')
-ssvd = importr('ssvd')
+lme4 = get_rpackage('lme4')
+rstats = get_rpackage('stats')
+fdrtool = get_rpackage('fdrtool')
+ssvd = get_rpackage('ssvd')
 if hasattr(lme4, 'coef'):
     r_coef  = lme4.coef
 else:
@@ -54,7 +66,7 @@ else:
 #import pandas.rpy.common as com
 
 # load ptsa clustering
-import cluster
+from . import cluster
 
 
 def lmer_feature(formula_str, dat, perms=None,
@@ -287,7 +299,7 @@ def procrustes(orig_lv, boot_lv):
 def pick_stable_features(R, shape, nboot=500, connectivity=None):
     # generate the boots
     boots = [np.random.random_integers(0, len(R)-1, len(R))
-             for i in xrange(nboot)]
+             for i in range(nboot)]
 
     # run tfce on each subj and cond
     if True:
@@ -315,7 +327,7 @@ def pick_stable_features(R, shape, nboot=500, connectivity=None):
 def sparse_stable_svd(R, nboot=50):
     # generate the boots
     boots = [np.random.random_integers(0, len(R)-1, len(R))
-             for i in xrange(nboot)]
+             for i in range(nboot)]
 
     # calc the original SVD
     U, s, Vh = np.linalg.svd(np.concatenate(R), full_matrices=False)
@@ -511,7 +523,7 @@ def _eval_model(model_id, perm=None, boot=None):
             m_full = lmer._ms
             ll_null = []
             ll_full = []
-            for bi in xrange(mm._num_null_boot):
+            for bi in range(mm._num_null_boot):
                 # sim new data
                 #Dw_sim = np.array(r['simulate'](m_null))[0]
                 Dw_sim = r['simulate'](m_null)
@@ -772,7 +784,7 @@ class MELD(object):
                     sys.stdout.write('Ranking %s...'%(str(g)))
                     sys.stdout.flush()
 
-                for i in xrange(self._D[g].shape[1]):
+                for i in range(self._D[g].shape[1]):
                     self._D[g][:, i] = rankdata(self._D[g][:, i])
 
             # reshape M, so we don't have to do it repeatedly
@@ -801,7 +813,7 @@ class MELD(object):
                                          #for c in cols if not 'Intercept' in c]).T
 
             if use_ranks:
-                for i in xrange(self._A[g].shape[1]):
+                for i in range(self._A[g].shape[1]):
                     self._A[g][:, i] = rankdata(self._A[g][:, i])
 
             # normalize A
@@ -904,7 +916,7 @@ class MELD(object):
 
             # gen the perms ahead of time
             perms = []
-            for p in xrange(nperms):
+            for p in range(nperms):
                 ind = {}
                 for k in self._groups:
                     # gen a perm for that subj
@@ -961,7 +973,7 @@ class MELD(object):
 
             # calculate the boots with replacement
             boots = [np.random.random_integers(0, len(self._R)-1, len(self._R))
-                     for i in xrange(nboots)]
+                     for i in range(nboots)]
 
         if verbose > 0:
             sys.stdout.write('Running %d bootstraps...\n'%nboots)

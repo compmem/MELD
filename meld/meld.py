@@ -8,6 +8,8 @@
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ##
 
 from __future__ import print_function
+from builtins import range
+
 import os
 import sys
 import time
@@ -18,7 +20,7 @@ from scipy.linalg import diagsvd
 from scipy.stats import rankdata
 import scipy.stats.distributions as dists
 
-from joblib import Parallel,delayed
+from joblib import Parallel, delayed
 
 # Connect to an R session
 import rpy2.robjects
@@ -28,8 +30,8 @@ r = rpy2.robjects.r
 from rpy2.robjects.packages import importr
 from rpy2.robjects import Formula, FactorVector
 from rpy2.robjects.environments import Environment
-from rpy2.robjects.vectors import DataFrame, Vector, FloatVector
-from rpy2.rinterface import MissingArg,SexpVector
+from rpy2.robjects.vectors import DataFrame, Vector, FloatVector, StrVector
+from rpy2.rinterface import MissingArg, SexpVector, RRuntimeError
 
 # Make it so we can send numpy arrays to R
 import rpy2.robjects.numpy2ri
@@ -39,11 +41,21 @@ rpy2.robjects.numpy2ri.activate()
 #ro.conversion.py2ri = numpy2ri
 #numpy2ri.activate()
 
+def get_rpackage(packname):
+    try:
+        result = importr(packname)
+    except RRuntimeError:
+        utils = importr('utils')
+        utils.chooseCRANmirror(ind=1)
+        utils.install_packages(packname)
+        result = importr(packname)
+    return result
+
 # load some required packages
 # PBS: Eventually we should try/except these to get people 
 # to install missing packages
-lme4 = importr('lme4')
-rstats = importr('stats')
+lme4 = get_rpackage('lme4')
+rstats = get_rpackage('stats')
 if hasattr(lme4,'coef'):
     r_coef  = lme4.coef
 else:
@@ -54,8 +66,10 @@ else:
     r_model_matrix = rstats.model_matrix
 
 # load ptsa clustering
-import cluster
-from stat_helper import fdr_correction
+from . import cluster
+from . import stat_helper
+
+fdr_correction = stat_helper.fdr_correction
 
 # deal with warnings for bootstrap
 import warnings
@@ -241,7 +255,7 @@ def pick_stable_features(Z, nboot=500):
     """
     # generate the boots
     boots = [np.random.random_integers(0, len(Z)-1, len(Z))
-             for i in xrange(nboot)]
+             for i in range(nboot)]
 
     # calc bootstrap ratio
     # calc the bootstrap std in efficient way
@@ -295,13 +309,13 @@ def blockwise_dot(A, B, max_elements=int(2**26), out=None):
 
     if A.flags.f_contiguous:
         # prioritize processing as many columns of A as possible
-        max_cols = max(1, max_elements / m)
-        max_rows = max_elements / max_cols
+        max_cols = max(1, max_elements // m)
+        max_rows = max_elements // max_cols
 
     else:
         # prioritize processing as many rows of A as possible
-        max_rows = max(1, max_elements / n)
-        max_cols = max_elements / max_rows
+        max_rows = max(1, max_elements // n)
+        max_cols = max_elements // max_rows
 
     if out is None:
         out = np.empty((m, o), dtype=np.result_type(A, B))
@@ -699,7 +713,7 @@ class MELD(object):
                     sys.stdout.write('Ranking %s...' % (str(g)))
                     sys.stdout.flush()
 
-                for i in xrange(self._D[g].shape[1]):
+                for i in range(self._D[g].shape[1]):
                     # rank it
                     self._D[g][:, i] = rankdata(self._D[g][:, i])
 
@@ -738,7 +752,7 @@ class MELD(object):
                                          for c in self._svd_terms]).T
 
             if use_ranks:
-                for i in xrange(self._A[g].shape[1]):
+                for i in range(self._A[g].shape[1]):
                     # rank it
                     self._A[g][:, i] = rankdata(self._A[g][:, i])
 
@@ -847,7 +861,7 @@ class MELD(object):
 
             # gen the perms ahead of time
             perms = []
-            for p in xrange(nperms):
+            for p in range(nperms):
                 ind = {}
                 for k in self._groups:
                     # gen a perm for that subj
