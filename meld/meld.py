@@ -29,7 +29,7 @@ r = rpy2.robjects.r
 
 # For a Pythonic interface to R
 from rpy2.robjects.packages import importr
-from rpy2.robjects import Formula, FactorVector
+from rpy2.robjects import Formula, FactorVector, pandas2ri
 from rpy2.robjects.environments import Environment
 from rpy2.robjects.vectors import DataFrame, Vector, FloatVector, StrVector
 from rpy2.rinterface import MissingArg, SexpVector, RRuntimeError
@@ -82,6 +82,44 @@ class InstabilityWarning(UserWarning):
 # On import, make sure that InstabilityWarnings are not filtered out.
 warnings.simplefilter('always', InstabilityWarning)
 
+def get_re(model):
+    """Given an lmer model, return the random effect stats.
+
+    Parameters
+    ----------
+    model : R object with classes: ('lmerMod',)
+        The fitted model object that you're extracting RE stats from.
+
+    Returns
+    -------
+    ran_vars : DataFrame
+        Dataframe of the random effects
+    ran_corrs : DataFrame or None
+        Dataframe of the correlations between random effects terms.
+    """
+    #pymer4
+    base = importr('base')
+    summary = base.summary(model)
+    unsum = base.unclass(summary)
+
+    df = pandas2ri.ri2py(base.data_frame(unsum.rx2('varcor')))
+    ran_vars = df.query("(var2 == 'NA') | (var2 == 'N')").drop('var2', axis=1)
+    ran_vars.index = ran_vars['grp']
+    ran_vars.drop('grp', axis=1, inplace=True)
+    ran_vars.columns = ['Name', 'Var', 'Std']
+    ran_vars.index.name = None
+    ran_vars.replace('NA', '', inplace=True)
+
+    ran_corrs = df.query("(var2 != 'NA') & (var2 != 'N')").drop('vcov', axis=1)
+    if ran_corrs.shape[0] != 0:
+        ran_corrs.index = ran_corrs['grp']
+        ran_corrs.drop('grp', axis=1, inplace=True)
+        ran_corrs.columns = ['IV1', 'IV2', 'Corr']
+        ran_corrs.index.name = None
+    else:
+        ran_corrs = None
+    #\pymer4
+    return ran_vars, ran_corrs
 
 class LMER():
     """
@@ -159,6 +197,12 @@ class LMER():
         # model is null to start
         self._ms = None
 
+    def _get_re(self):
+        if self._ms is None:
+            raise RuntimeError("Model hasn't been fit yet. Execute LMER.run() first")
+        else:
+            return get_re(self._ms)
+
     def run(self, vals=None, perms=None):
 
         # set the col with the val
@@ -214,6 +258,7 @@ class LMER():
             log_likes[i] = float(r['logLik'](ms)[0])
 
         return tvals, log_likes
+
 
 
 class OnlineVariance(object):
