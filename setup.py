@@ -54,5 +54,5 @@ setup(
     ],
     keywords='mixed effects models rpy2',
 
-    install_requires=['numpy', 'scipy', 'rpy2', 'joblib', 'jinja2']
+    install_requires=['numpy', 'scipy', 'rpy2', 'joblib', 'jinja2', 'pandas']
     )

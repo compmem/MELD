@@ -15,6 +15,7 @@ import sys
 import time
 import tempfile
 import numpy as np
+import pandas as pd
 from numpy.lib.recfunctions import append_fields
 from scipy.linalg import diagsvd
 from scipy.stats import rankdata
@@ -52,7 +53,7 @@ def get_rpackage(packname):
     return result
 
 # load some required packages
-# PBS: Eventually we should try/except these to get people 
+# PBS: Eventually we should try/except these to get people
 # to install missing packages
 lme4 = get_rpackage('lme4')
 rstats = get_rpackage('stats')
@@ -79,26 +80,42 @@ class InstabilityWarning(UserWarning):
     pass
 
 # On import, make sure that InstabilityWarnings are not filtered out.
-warnings.simplefilter('always',InstabilityWarning)
+warnings.simplefilter('always', InstabilityWarning)
 
 
 class LMER():
     """
-    Wrapper for the lmer method provided by lme4 in R. 
+    Wrapper for the lmer method provided by lme4 in R.
 
-    This object facilitates fitting the same model multiple times 
+    This object facilitates fitting the same model multiple times
     and extracting the associated t-stat.
 
+    Parameters
+    ----------
+    formula_str : str
+        lme4 style mixed effects model specification
+    df : DataFrame
+        Dataframe with column labels corresponding to formula
+    factors : list of str
+        Optional, list of the names of the factors
+    resid_formula_str : str
+        lme4 style mixed effects model specification for residuals
+    **lmer_opts
+        additional keyword arguments for lme4
     """
-    def __init__(self, formula_str, df, factors=None, 
+    def __init__(self, formula_str, df, factors=None,
                  resid_formula_str=None, **lmer_opts):
         """
         """
         # get the pred_var
         pred_var = formula_str.split('~')[0].strip()
 
+        # convert df to a recarray if it's a dataframe
+        if isinstance(df, pd.DataFrame):
+            df = df.to_records()
+
         # add column if necessary
-        if not pred_var in df.dtype.names:
+        if pred_var not in df.dtype.names:
             # must add it
             df = append_fields(df, pred_var, [0.0]*len(df), usemask=False)
 
@@ -107,21 +124,21 @@ class LMER():
             factors = {}
         # add in missingarg for any potential factor not provided
         for k in df.dtype.names:
-            if isinstance(df[k][0],str) and k not in factors:
+            if isinstance(df[k][0], str) and k not in factors:
                 factors[k] = MissingArg
-                
+
         for f in factors:
             if factors[f] is None:
                 factors[f] = MissingArg
             # checking for both types of R Vectors for rpy2 variations
-            elif (not isinstance(factors[f],Vector) and 
+            elif (not isinstance(factors[f], Vector) and
                   not factors[f] == MissingArg):
                 factors[f] = Vector(factors[f])
 
         # convert the recarray to a DataFrame (releveling if desired)
-        self._rdf = DataFrame({k:(FactorVector(df[k], levels=factors[k]) 
-                                  if (k in factors) or isinstance(df[k][0],str) 
-                                  else df[k]) 
+        self._rdf = DataFrame({k: (FactorVector(df[k], levels=factors[k])
+                                    if (k in factors) or isinstance(df[k][0], str)
+                                   else df[k])
                                for k in df.dtype.names})
 
         # get the column index
@@ -145,7 +162,7 @@ class LMER():
     def run(self, vals=None, perms=None):
 
         # set the col with the val
-        if not vals is None:
+        if vals is not None:
             self._rdf[self._col_ind] = vals
 
         # just apply to actual data if no perms
@@ -156,8 +173,8 @@ class LMER():
         # run on each permutation
         tvals = None
         log_likes = None
-        for i,perm in enumerate(perms):
-            if not perm is None:
+        for i, perm in enumerate(perms):
+            if perm is not None:
                 # set the perm
                 self._rdf[self._col_ind] = self._rdf[self._col_ind].rx(perm+1)
 
@@ -174,7 +191,7 @@ class LMER():
             except:
                 continue
                 #tvals.append(np.array([np.nan]))
-            
+
             # save the model
             if self._ms is None:
                 self._ms = ms
@@ -300,7 +317,7 @@ def blockwise_dot(A, B, max_elements=int(2**26), out=None):
     if len(A.shape) == 1:
         A = A[np.newaxis, :]
     if len(B.shape) == 1:
-        B = B[:,np.newaxis]
+        B = B[:, np.newaxis]
     m,  n = A.shape
     n1, o = B.shape
 
@@ -983,7 +1000,7 @@ class MELD(object):
 
 
 if __name__ == '__main__':
-    np.random.RandomState(seed = 42)
+    np.random.RandomState(seed= 42)
 
     # test some MELD
     n_jobs = -1
