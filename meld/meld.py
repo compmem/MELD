@@ -57,7 +57,7 @@ def get_rpackage(packname):
 lme4 = get_rpackage('lme4')
 rstats = get_rpackage('stats')
 if hasattr(lme4,'coef'):
-    r_coef  = lme4.coef
+    r_coef = lme4.coef
 else:
     r_coef = rstats.coef
 if hasattr(lme4,'model_matrix'):
