@@ -198,13 +198,24 @@ class LMER():
         self._ms = None
 
     def _get_re(self):
+        """Get the random effects values and correlations for the LMER._ms model
+        
+        Returns
+        -------
+        ran_vars : DataFrame
+            Dataframe of the random effects
+        ran_corrs : DataFrame or None
+            Dataframe of the correlations between random effects terms.
+        """
         if self._ms is None:
             raise RuntimeError("Model hasn't been fit yet. Execute LMER.run() first")
         else:
             return get_re(self._ms)
 
     def run(self, vals=None, perms=None):
+        """Fit the mixed effects models, potentially on different data or with permutations.
 
+        """
         # set the col with the val
         if vals is not None:
             self._rdf[self._col_ind] = vals

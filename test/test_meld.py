@@ -41,10 +41,8 @@ dep_mask[:, :2] = False
 dep_data_s = dep_data.copy()
 for i in range(0, 20, 2):
     for j in range(2):
-        dep_data_s[:, 4, i+j] += (ind_data['beh'] * (i+1)/50.)
-        dep_data_s[:, 5, i+j] += (ind_data['beh'] * (i+1)/50.)
-        dep_data_s[:, 5, i+j] += (ind_data['beh2'] * (i+1)/50.)
-        dep_data_s[:, 6, i+j] += (ind_data['beh2'] * (i+1)/50.)
+        dep_data_s[:, 4, i+j] += (ind_data['beh'] * (i+1)*50.)
+        dep_data_s[:, 5, i+j] += (ind_data['beh'] * (i+1)*50.)
 
 # smooth the data
 if smoothed:
@@ -52,24 +50,37 @@ if smoothed:
     dep_data = scipy.ndimage.gaussian_filter(dep_data, [0, 1, 1])
     dep_data_s = scipy.ndimage.gaussian_filter(dep_data_s, [0, 1, 1])
 
-print("Starting MELD test")
-print("beh has signal, beh2 does not")
-me_s = MELD('val ~ beh+beh2', '(1|subj)', 'subj',
-            dep_data_s, ind_data, factors={'subj': None},
-            use_ranks=use_ranks,
-            dep_mask=dep_mask,
-            feat_nboot=1000, feat_thresh=0.05,
-            do_tfce=True,
-            connectivity=None, shape=None,
-            dt=.01, E=2/3., H=2.0,
-            n_jobs=n_jobs, verbose=verbose,
-            memmap=memmap,
-            # lmer_opts={'control':lme4.lmerControl(optimizer="nloptwrap",
-            #                                       #optimizer="Nelder_Mead",
-            #                                       optCtrl=r['list'](maxfun=100000))
-            #        }
-           )
-me_s.run_perms(nperms)
-pfts = me_s.p_features
-print("Number of signifcant features:", [(n, (pfts[n] <= .05).sum())
-                                         for n in pfts.dtype.names])
+
+def test_meld():
+    print("Starting MELD test")
+    print("beh has signal, beh2 does not")
+    me_s = MELD('val ~ beh+beh2', '(1|subj)', 'subj',
+                dep_data_s, ind_data, factors={'subj': None},
+                use_ranks=use_ranks,
+                dep_mask=dep_mask,
+                feat_nboot=1000, feat_thresh=0.05,
+                do_tfce=True,
+                connectivity=None, shape=None,
+                dt=.01, E=2/3., H=2.0,
+                n_jobs=n_jobs, verbose=verbose,
+                memmap=memmap,
+                # lmer_opts={'control':lme4.lmerControl(optimizer="nloptwrap",
+                #                                       #optimizer="Nelder_Mead",
+                #                                       optCtrl=r['list'](maxfun=100000))
+                #        }
+               )
+    me_s.run_perms(nperms)
+    pfts = me_s.p_features
+    print("Number of signifcant features:", [(n, (pfts[n] <= .05).sum())
+                                             for n in pfts.dtype.names])
+    sig_location = np.array((np.array([4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
+                                       4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5, 5,
+                                       5, 5, 5, 5, 5, 5, 5, 5, 5, 5]),
+                             np.array([2,  3,  4,  5,  6,  7,  8,  9, 10, 11,
+                                       12, 13, 14, 15, 16, 17, 18, 19,  2,  3,
+                                       4,  5,  6,  7,  8,  9, 10, 11, 12, 13,
+                                       14, 15, 16, 17, 18, 19])))
+    # This is just the most basic of idiot tests
+    assert (np.array(np.where(me_s.t_features['beh'] > 1000000)) == sig_location).all()
+    assert ((me_s.t_features['beh2'] >100000)==0).all()
+
