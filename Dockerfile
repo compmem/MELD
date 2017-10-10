@@ -4,7 +4,7 @@ USER root
 
 RUN apt-get update && apt-get install -y python3-tk
 
-RUN pip3 --no-cache-dir install scipy matplotlib joblib seaborn pandas
+RUN pip3 --no-cache-dir install scipy matplotlib joblib seaborn pandas h5py
 
 COPY . /home/$NB_USER/work/meld
 
