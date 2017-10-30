@@ -8,4 +8,4 @@ MELD uses rpy2 to wrap r's LME4 library. rpy2 is sometimes difficult to install,
 If you use MELD, please cite our publication:
 Nielson DM, Sederberg PB (2017) [MELD: Mixed effects for large datasets](https://doi.org/10.1371/journal.pone.0182797). PLOS ONE 12(8): e0182797. https://doi.org/10.1371/journal.pone.0182797
 
-This repo is very much a work in progress, but MELD will be updated to work in python 2 and 3, and distributed with a docker container to alleviate the pain of rpy2 installation. 
+This repo is very much a work in progress, but MELD works in python 3, and is distributed with a docker container to alleviate the pain of rpy2 installation. 
