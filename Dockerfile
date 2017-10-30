@@ -4,11 +4,11 @@ USER root
 
 RUN apt-get update && apt-get install -y python3-tk
 
-RUN pip3 --no-cache-dir install scipy matplotlib joblib seaborn pandas h5py
+RUN pip3 --no-cache-dir install scipy matplotlib joblib seaborn pandas tables statsmodels
 
 COPY . /home/$NB_USER/work/meld
 
-RUN pip3 install /home/$NB_USER/work/meld
+RUN pip3 --no-cache-dir install /home/$NB_USER/work/meld
 
 RUN /usr/local/bin/ipython -c "import meld"
 
