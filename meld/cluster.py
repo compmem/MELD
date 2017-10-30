@@ -10,6 +10,7 @@
 # global imports
 import numpy as np
 from scipy import stats, sparse, ndimage, spatial
+from scipy.sparse import csgraph
 
 def deg2rad(degrees):
     """Convert degrees to radians."""
@@ -37,7 +38,7 @@ def pol2cart(theta, radius, z=None, radians=True):
 # some functions from MNE
 def _get_components(x_in, connectivity):
     """get connected components from a mask and a connectivity matrix"""
-    cs_graph_components = sparse.csgraph.connected_components
+    cs_graph_components = csgraph.connected_components
 
     mask = np.logical_and(x_in[connectivity.row], x_in[connectivity.col])
     data = connectivity.data[mask]
