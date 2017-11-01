@@ -779,6 +779,8 @@ class MELD(object):
             # This will also reshape it
             self._D[g] = dep_data[dep_ind][row_ind][:, self._dep_mask].copy()
 
+            # TODO: Make sure that there is still data in _D
+
             # reshape it
             #self._D[g] = self._D[g].reshape((self._D[g].shape[0], -1))
             if use_ranks:
@@ -854,7 +856,7 @@ class MELD(object):
 
         # mask the connectivity
         if self._do_tfce and (len(self._dep_mask.flatten()) > self._dep_mask.sum()):
-            self._connectivity = self._connectivity.tolil()[self._dep_mask.flatten()][:,self._dep_mask.flatten()].tocoo()
+            self._connectivity = self._connectivity.tolil()[self._dep_mask.flatten()].tocsc()[:,self._dep_mask.flatten()].tocoo()
 
         # prepare for the perms and boots and jackknife
         self._perms = []
