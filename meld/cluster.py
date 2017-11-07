@@ -11,6 +11,8 @@
 import numpy as np
 from scipy import stats, sparse, ndimage, spatial
 from scipy.sparse import csgraph
+from numba import jit
+
 
 cs_graph_components = csgraph.connected_components
 
@@ -114,7 +116,7 @@ def find_clusters(x, threshold, tail=0, connectivity=None):
                             "to define clusters.")
         if np.sum(x_in) == 0:
             return [], np.empty(0)
-        
+
         components = _get_components(x_in, connectivity)
         comp_inx = components[x_in]
         comp_inx_ind = np.arange(0,len(components))[x_in]
@@ -130,6 +132,81 @@ def find_clusters(x, threshold, tail=0, connectivity=None):
         clusters = list(clusters)
 
     return clusters, sums
+
+def find_tfce_clusters(x, threshold, sign, E, H, dt, tail=0, connectivity=None):
+    """For a given 1d-array (test statistic), find all clusters which
+    are above/below a certain threshold. Returns a list of 2-tuples.
+
+    Parameters
+    ----------
+    x: 1D array
+        Data
+    threshold: float
+        Where to threshold the statistic
+    tail : -1 | 0 | 1
+        Type of comparison
+    connectivity : sparse matrix in COO format
+        Defines connectivity between features. The matrix is assumed to
+        be symmetric and only the upper triangular half is used.
+        Defaut is None, i.e, no connectivity.
+
+    Returns
+    -------
+    clust_sums: size of cluster at each element of x
+    """
+    if tail not in [-1, 0, 1]:
+        raise ValueError('invalid tail parameter')
+
+    x = np.asanyarray(x)
+
+    if tail == -1:
+        x_in = x <= threshold
+    elif tail == 1:
+        x_in = x >= threshold
+    else:
+        x_in = np.abs(x) >= threshold
+
+    if connectivity is None:
+        labels, n_labels = ndimage.label(x_in)
+
+        if x.ndim == 1:
+            clusters = ndimage.find_objects(labels, n_labels)
+            sums = ndimage.measurements.sum(x, labels,
+                                            index=range(1, n_labels + 1))
+        else:
+            clusters = list()
+            sums = np.empty(n_labels)
+            for l in range(1, n_labels + 1):
+                c = labels == l
+                clusters.append(c)
+                sums[l - 1] = np.sum(x[c])
+    else:
+        if x.ndim > 1:
+            raise Exception("Data should be 1D when using a connectivity "
+                            "to define clusters.")
+        if np.sum(x_in) == 0:
+            return np.zeros(len(x))
+
+        components = _get_components(x_in, connectivity)
+        
+
+    return get_clust_sums(components, x_in, x, sign, E, H, dt, threshold)
+
+@jit(nopython=True)
+def get_clust_sums(components, x_in, x, sign, E, H, dt, threshold):
+    comp_inx = components[x_in]
+    comp_inx_ind = np.arange(0,len(components))[x_in]
+    sums = np.zeros(len(components))
+    clust_sums = np.zeros(len(x))
+    clust_sums_inx = np.zeros(len(comp_inx))
+    for i,comp in enumerate(comp_inx):
+        sums[comp] += 1
+    for i,comp in enumerate(comp_inx):
+        clust_sums_inx[i] = sums[comp_inx[i]]
+        
+    clust_sums[x_in] = sign * np.power(clust_sums_inx, E) * np.power(sign*threshold, H) * dt
+    
+    return clust_sums
 
 
 def pval_from_histogram(T, H0, tail):
@@ -280,20 +357,13 @@ def tfce(x, dt=.1, E=2/3., H=2.0, tail=0, connectivity=None):
         xr = x.reshape(np.prod(x.shape))
     
 
-
     # get starting values for data (reshaped if needed)
     xt = np.zeros_like(xr)
     for thresh in trange:
         # get the clusters (reshape as necessary)
-        clusts, sums = find_clusters(xr, thresh,
+        xt += find_tfce_clusters(xr, thresh, sign, E, H, dt, 
                                      tail=tail,
                                      connectivity=connectivity)
-
-        #maybe pull inner loop from find_clusters back to here and integrate with next step
-        # add to values in clusters
-        for c in clusts:
-            # take into account direction of test
-            xt[c] += sign * np.power(c.sum(), E) * np.power(sign*thresh, H) * dt
 
     # return the enhanced data, reshaped back
     if connectivity is None:
