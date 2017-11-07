@@ -12,6 +12,8 @@ import numpy as np
 from scipy import stats, sparse, ndimage, spatial
 from scipy.sparse import csgraph
 
+cs_graph_components = csgraph.connected_components
+
 def deg2rad(degrees):
     """Convert degrees to radians."""
     return degrees/180.*np.math.pi
@@ -38,7 +40,6 @@ def pol2cart(theta, radius, z=None, radians=True):
 # some functions from MNE
 def _get_components(x_in, connectivity):
     """get connected components from a mask and a connectivity matrix"""
-    cs_graph_components = csgraph.connected_components
 
     mask = np.logical_and(x_in[connectivity.row], x_in[connectivity.col])
     data = connectivity.data[mask]
@@ -113,16 +114,21 @@ def find_clusters(x, threshold, tail=0, connectivity=None):
                             "to define clusters.")
         if np.sum(x_in) == 0:
             return [], np.empty(0)
+        
         components = _get_components(x_in, connectivity)
-        labels = np.unique(components)
-        clusters = list()
-        sums = list()
-        for l in labels:
-            c = (components == l)
-            if np.any(x_in[c]):
-                clusters.append(c)
-                sums.append(np.sum(x[c]))
-        sums = np.array(sums)
+        comp_inx = components[x_in]
+        comp_inx_ind = np.arange(0,len(components))[x_in]
+        labels = {c:k for k,c in enumerate(np.unique(comp_inx))}
+        clusters = np.zeros((len(labels), len(components)), dtype=bool)
+        sums = np.zeros(len(labels))
+        for i,comp in enumerate(components):
+            try:
+                clusters[labels[comp],i] = True
+                sums[labels[comp]] += x[i]
+            except KeyError:
+                pass
+        clusters = list(clusters)
+
     return clusters, sums
 
 
@@ -266,13 +272,15 @@ def tfce(x, dt=.1, E=2/3., H=2.0, tail=0, connectivity=None):
     # return values
     if connectivity is None:
         xr = x
-        #connectivity = sparse_dim_connectivity([simple_neighbors_1d(n)
-        #                                        for n in x.shape])
+        connectivity = sparse_dim_connectivity([simple_neighbors_1d(n)
+                                                for n in x.shape])
     else:
         # integrate in steps of dt over the threshold
         # do reshaping once
         xr = x.reshape(np.prod(x.shape))
-        
+    
+
+
     # get starting values for data (reshaped if needed)
     xt = np.zeros_like(xr)
     for thresh in trange:
@@ -281,6 +289,7 @@ def tfce(x, dt=.1, E=2/3., H=2.0, tail=0, connectivity=None):
                                      tail=tail,
                                      connectivity=connectivity)
 
+        #maybe pull inner loop from find_clusters back to here and integrate with next step
         # add to values in clusters
         for c in clusts:
             # take into account direction of test
