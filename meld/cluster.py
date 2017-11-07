@@ -165,12 +165,7 @@ def find_tfce_clusters(x, threshold, sign, E, H, dt, tail=0, connectivity=None):
 
     x = np.asanyarray(x)
 
-    if tail == -1:
-        x_in = x <= threshold
-    elif tail == 1:
-        x_in = x >= threshold
-    else:
-        x_in = np.abs(x) >= threshold
+    x_in = get_xin(tail, x, threshold)
 
     if connectivity is None:
         labels, n_labels = ndimage.label(x_in)
@@ -197,7 +192,15 @@ def find_tfce_clusters(x, threshold, sign, E, H, dt, tail=0, connectivity=None):
         
 
     return get_clust_sums(components, x_in, x, sign, E, H, dt, threshold)
-
+@jit(nopython=True)
+def get_xin(tail, x, threshold):
+    if tail == -1:
+        x_in = x <= threshold
+    elif tail == 1:
+        x_in = x >= threshold
+    else:
+        x_in = np.abs(x) >= threshold
+    return x_in
 @jit(nopython=True)
 def get_clust_sums(components, x_in, x, sign, E, H, dt, threshold):
     comp_inx = components[x_in]
@@ -324,7 +327,6 @@ def sensor_neighbors(sensor_locs):
 
     # return it
     return cn
-
 
 def tfce(x, dt=.1, E=2/3., H=2.0, tail=0, connectivity=None):
     """
