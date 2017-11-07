@@ -42,21 +42,27 @@ def pol2cart(theta, radius, z=None, radians=True):
 # some functions from MNE
 def _get_components(x_in, connectivity):
     """get connected components from a mask and a connectivity matrix"""
-
-    mask = np.logical_and(x_in[connectivity.row], x_in[connectivity.col])
-    data = connectivity.data[mask]
-    row = connectivity.row[mask]
-    col = connectivity.col[mask]
+    crow = connectivity.row
+    ccol = connectivity.col
+    cdata = connectivity.data
     shape = connectivity.shape
-    idx = np.where(x_in)[0]
-    row = np.concatenate((row, idx))
-    col = np.concatenate((col, idx))
-    data = np.concatenate((data, np.ones(len(idx), dtype=data.dtype)))
-    connectivity = sparse.coo_matrix((data, (row, col)), shape=shape)
+    data, row, col = do_masky_things(crow, ccol, cdata, x_in)
+    connectivity = sparse.coo_matrix((data, (row,col)), shape=shape)
     _, components = cs_graph_components(connectivity)
     # print "-- number of components : %d" % np.unique(components).size
     return components
 
+@jit(nopython=True)
+def do_masky_things(crow, ccol, cdata, x_in):
+    mask = np.logical_and(x_in[crow], x_in[ccol])
+    data = cdata[mask]
+    row = crow[mask]
+    col = ccol[mask]
+    idx = np.where(x_in)[0]
+    row = np.concatenate((row, idx))
+    col = np.concatenate((col, idx))
+    data = np.concatenate((data, np.ones(len(idx), dtype=data.dtype)))
+    return data, row, col
 
 def find_clusters(x, threshold, tail=0, connectivity=None):
     """For a given 1d-array (test statistic), find all clusters which
