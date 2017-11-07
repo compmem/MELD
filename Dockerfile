@@ -4,7 +4,7 @@ USER root
 
 RUN apt-get update && apt-get install -y python3-tk
 
-RUN pip3 --no-cache-dir install scipy matplotlib joblib seaborn pandas tables statsmodels numpa
+RUN pip3 --no-cache-dir install scipy matplotlib joblib seaborn pandas tables statsmodels numba
 
 COPY . /home/$NB_USER/work/meld
 
