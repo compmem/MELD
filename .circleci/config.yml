@@ -18,4 +18,4 @@ jobs:
 
       - run: docker tag compmem/meld:$CIRCLE_BUILD_NUM-${CIRCLE_SHA1:0:6}_nielson_2017 compmem/meld_nielson_2017:latest
 
-       - run: docker push compmem/meld_nielson_2017
+      - run: docker push compmem/meld_nielson_2017
