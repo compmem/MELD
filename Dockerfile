@@ -14,6 +14,8 @@ RUN /usr/local/bin/ipython -c "import meld"
 
 RUN chown -R $NB_USER:users /home/$NB_USER/work/meld
 
+ENV JOBLIB_START_METHOD='forkserver'
+
 USER $NB_USER
 
 ENTRYPOINT ["/usr/local/bin/tini", "--"]
