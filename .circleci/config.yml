@@ -11,6 +11,11 @@ jobs:
       - run: docker run compmem/meld:$CIRCLE_BUILD_NUM-${CIRCLE_SHA1:0:6} /home/jupyteruser/work/meld/runtests.sh 
 
       - run: docker tag compmem/meld:$CIRCLE_BUILD_NUM-${CIRCLE_SHA1:0:6} compmem/meld:latest
-
+     
       - run: docker push compmem/meld
-    
+
+      - run: docker build -t compmem/meld:$CIRCLE_BUILD_NUM-${CIRCLE_SHA1:0:6}_nielson_2017 -f Dockerfile_nielson_2017 .
+
+      - run: docker tag compmem/meld:$CIRCLE_BUILD_NUM-${CIRCLE_SHA1:0:6}_nielson_2017 compmem/meld_nielson_2017:latest
+
+       - run: docker push compmem/meld_nielson_2017
