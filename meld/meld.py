@@ -838,7 +838,8 @@ class MELD(object):
             # normalize A
             if True:  # use_norm:
                 self._A[g] -= self._A[g].mean(0)
-                self._A[g] /= np.sqrt((self._A[g]**2).sum(0))
+                if not ((self._A[g].max() == self._A[g].min()) & (self._A[g].min() == 0)):
+                    self._A[g] /= np.sqrt((self._A[g]**2).sum(0))
 
             # memmap if desired
             if self._memmap:
