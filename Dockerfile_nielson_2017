@@ -12,9 +12,9 @@ COPY . /meld_root/work/meld
 
 RUN pip3 --no-cache-dir install /meld_root/work/meld
 
-RUN /usr/local/bin/ipython -c "import meld"
+RUN /usr/local/bin/ipython -c "import meld"; mkdir /meld_root/data
 
-RUN chown -R $NB_USER:users /meld_root/work/meld
+RUN chown -R $NB_USER:users /meld_root/
 
 ENV JOBLIB_START_METHOD='forkserver'
 
