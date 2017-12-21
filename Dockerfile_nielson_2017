@@ -4,7 +4,7 @@ USER root
 
 RUN apt-get update && apt-get install -y python3-tk
 
-RUN pip3 --no-cache-dir install scipy matplotlib joblib==0.8.4 seaborn pandas tables statsmodels numba scikit-learn nilearn
+RUN pip3 --no-cache-dir install scipy matplotlib joblib==0.8.4 seaborn pandas tables statsmodels numba scikit-learn nilearn ipyparallel
 
 RUN mv /home/$NB_USER /meld_root
 
@@ -12,7 +12,7 @@ COPY . /meld_root/work/meld
 
 RUN pip3 --no-cache-dir install /meld_root/work/meld
 
-RUN /usr/local/bin/ipython -c "import meld"; mkdir /meld_root/data
+RUN /usr/local/bin/ipython -c "import meld"; mkdir /meld_root/work/data /meld_root/work/code
 
 RUN chown -R $NB_USER:users /meld_root/
 
