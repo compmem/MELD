@@ -18,5 +18,7 @@ ENV JOBLIB_START_METHOD='forkserver'
 
 USER $NB_USER
 
+RUN cd /home/$NB_USER/ && mkdir code && git clone https://github.com/nipy/nipype && pip3 install -e /home/$NB_USER/code/nipype
+
 ENTRYPOINT ["/usr/local/bin/tini", "--"]
 CMD ["start-notebook.sh"]
