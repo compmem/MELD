@@ -4,7 +4,7 @@ USER root
 
 RUN apt-get update && apt-get install -y python3-tk
 
-RUN pip3 --no-cache-dir install scipy matplotlib joblib==0.8.4 seaborn pandas tables statsmodels numba nibablel matplotlib
+RUN pip3 --no-cache-dir install scipy matplotlib joblib==0.8.4 seaborn pandas tables statsmodels numba matplotlib nilearn
 
 COPY . /home/$NB_USER/work/meld
 
