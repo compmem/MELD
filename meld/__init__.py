@@ -7,6 +7,6 @@
 #
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ##
 
-from . import cluster, meld, nonparam, stat_helper
+from . import cluster, cluster_topdown, meld, nonparam, stat_helper
 
-__all__ = ['cluster', 'meld', 'nonparam', 'stat_helper']
+__all__ = ['cluster', 'cluster_topdown', 'meld', 'nonparam', 'stat_helper']
