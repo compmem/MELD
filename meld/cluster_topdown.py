@@ -96,8 +96,8 @@ def getNodeNeighbors(node, connectivity):
     # and cols
     # diagonals are all 0 in connectivity matrix (no self-neighboring) so we
     # don't need to worry about that
-    neighbors = np.append(connectivity.col[connectivity.row==node],
-                          connectivity.row[connectivity.col==node])
+    neighbors = connectivity.col[connectivity.row==node]
+
     return neighbors
 
 def tfce_pos(colData, areaData, connectivity, param_E = 0.5, param_H = 2.0):
