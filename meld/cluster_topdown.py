@@ -78,7 +78,7 @@ class Cluster():
         self.extent += extent
 
 
-def allocCluster(clusterList, deadClusters, param_e, param_h):
+def alloc_cluster(cluster_list, dead_clusters, param_e, param_h):
     """
         Generate a valid (new) cluster number
         If available, number for a dead cluster will be recycled
@@ -86,21 +86,23 @@ def allocCluster(clusterList, deadClusters, param_e, param_h):
 
         Args
         ----
-            clusterList : list of Clusters
-            deadClusters : set of Clusters
+            cluster_list : list of Clusters
+            dead_clusters : set of Clusters
             param_e : float
             param_h : float
     """
     # verify that the lists are actually being modified in main code
-    if len(deadClusters)==0:
-        clusterList.append( Cluster(param_e, param_h) )
-        return len(clusterList) - 1
+    if len(dead_clusters) == 0:
+        cluster_list.append(Cluster(param_e, param_h))
+        return len(cluster_list) - 1
     else:
-        ret = deadClusters.pop() # removes and returns element from set
-        clusterList[ret] = Cluster(param_e, param_h)
+        # removes and returns element from set
+        ret = dead_clusters.pop()
+        cluster_list[ret] = Cluster(param_e, param_h)
         return ret
 
-def getNodeNeighbors(node, connectivity):
+
+def get_node_neighbors(node, connectivity):
     """
         Given a connectivity matrix, get neighbors of a node
 
@@ -124,15 +126,31 @@ def getNodeNeighbors(node, connectivity):
 
     return neighbors
 
-@jit(nopython=True)   
+
+@jit(nopython=True)
 def get_touching(neighbors, membership):
-    touchingClusters = set()
+    """ Numba function to get cluster membership of neighboring clusters
+
+    Paramters
+    ---------
+    neighbors : array of int
+        Node indicies of neighboring nodes
+    membership : array of float
+        Array storing membership for every node
+
+    Returns
+    -------
+    touching_clusters: set of int
+        Set of node indicies for touching clusters
+    """
+    touching_clusters = set()
     for nbr in neighbors:
         if membership[nbr] != -1:
-            touchingClusters.add(membership[nbr])
-    return touchingClusters
+            touching_clusters.add(membership[nbr])
+    return touching_clusters
 
-def tfce_pos(colData, areaData, connectivity, param_e = 0.5, param_h = 2.0):
+
+def tfce_pos(col_data, area_data, connectivity, param_e=0.5, param_h=2.0):
     """
         Compute TFCE for each node (i.e., vertex, pixel, voxel, ...)
 
@@ -172,102 +190,116 @@ def tfce_pos(colData, areaData, connectivity, param_e = 0.5, param_h = 2.0):
 
         Args
         ----
-            colData : 1-D numpy array of floats
-            areaData : 1-D numpy array of floats
+            col_data : 1-D numpy array of floats
+            area_data : 1-D numpy array of floats
             param_e : float
             param_h : float
 
         Returns
         -------
-            accumData : 1-D numpy array of floats
+            accum_data : 1-D numpy array of floats
                 array of TFCE values at each node
     """
-    # colData must be n-by-1
-    # areaData must be n-by-1
+    # col_data must be n-by-1
+    # area_data must be n-by-1
     # connectivity must be a sparse n-by-n matrix; upper triangular only
 
-    numNodes = len(colData)
-    membership = -np.ones_like(colData, dtype=np.int)
-    accumData = np.zeros_like(colData)
-    clusterList = []
-    deadClusters = set()
-    nodeHeap = []
+    #num_nodes = len(col_data)
+    membership = -np.ones_like(col_data, dtype=np.int)
+    accum_data = np.zeros_like(col_data)
+    cluster_list = []
+    dead_clusters = set()
+    node_heap = []
 
-    for i, coldt in enumerate(colData):
+    for i, coldt in enumerate(col_data):
         if coldt > 0:
-            heapq.heappush(nodeHeap, (-coldt,i)) # first element is the priority (determines heap order)
+            # first element is the priority (determines heap order)
+            heapq.heappush(node_heap, (-coldt, i))
 
-    while len(nodeHeap)>0:
-        negvalue, node = heapq.heappop(nodeHeap)
+    while len(node_heap) > 0:
+        negvalue, node = heapq.heappop(node_heap)
         value = -negvalue
-        neighbors = getNodeNeighbors(node, connectivity)
-        numNeigh = len(neighbors)
+        neighbors = get_node_neighbors(node, connectivity)
+        #num_neigh = len(neighbors)
 
-        touchingClusters = get_touching(neighbors, membership)
+        touching_clusters = get_touching(neighbors, membership)
 
-        numTouching = len(touchingClusters)
-        if numTouching==0: # make new cluster
-            newCluster = allocCluster(clusterList, deadClusters, param_e, param_h)
-            clusterList[newCluster].add_member(node, value, areaData[node])
-            membership[node] = newCluster
-        elif numTouching==1: # add to cluster
-            whichCluster = touchingClusters.pop()
-            clusterList[whichCluster].add_member(node, value, areaData[node])
-            membership[node] = whichCluster
-            accumData[node] -= clusterList[whichCluster].accum_val
-        else: # merge all touching clusters
-            # find the biggest cluster (i.e., with most members) and use as merged cluster
-            mergedIndex = -1
-            biggestSize = 0
+        num_touching = len(touching_clusters)
+        # make new cluster
+        if num_touching == 0:
+            new_cluster = alloc_cluster(cluster_list,
+                                        dead_clusters,
+                                        param_e,
+                                        param_h)
+            cluster_list[new_cluster].add_member(node, value, area_data[node])
+            membership[node] = new_cluster
+        # add to cluster
+        elif num_touching == 1:
+            which_cluster = touching_clusters.pop()
+            cluster_list[which_cluster].add_member(node, value, area_data[node])
+            membership[node] = which_cluster
+            accum_data[node] -= cluster_list[which_cluster].accum_val
+        # merge all touching clusters
+        else:
+            # find the biggest cluster (i.e., with most members)
+            #  and use as merged cluster
+            merged_index = -1
+            biggest_size = 0
 
-            for tclust in touchingClusters:
-                if len(clusterList[tclust].members) > biggestSize:
-                    mergedIndex = tclust
-                    biggestSize = len(clusterList[tclust].members)
+            for tclust in touching_clusters:
+                if len(cluster_list[tclust].members) > biggest_size:
+                    merged_index = tclust
+                    biggest_size = len(cluster_list[tclust].members)
 
             # assert vector index .. ?
-            assert((mergedIndex>=0) and (mergedIndex<len(clusterList)))
+            assert (merged_index >= 0) and (merged_index < len(cluster_list))
 
-            mergedCluster = clusterList[mergedIndex]
-            mergedCluster.update(value) # recalculate to align cluster bottoms
+            merged_cluster = cluster_list[merged_index]
+            # recalculate to align cluster bottoms
+            merged_cluster.update(value)
 
-            for tclust in touchingClusters:
+            for tclust in touching_clusters:
                 # if we are the largest cluster, don't modify the per-node accum
                 # for members, so merges between small and large clusters are cheap
-                if tclust != mergedIndex:
-                    thisCluster = clusterList[tclust]
-                    thisCluster.update(value) # recalculate to align cluster bottoms
+                if tclust != merged_index:
+                    this_cluster = cluster_list[tclust]
+                    # recalculate to align cluster bottoms
+                    this_cluster.update(value)
 
-                    correctionVal = thisCluster.accum_val - mergedCluster.accum_val
-                    for mbr in thisCluster.members:
-                        accumData[mbr] += correctionVal
-                        membership[mbr] = mergedIndex
+                    correction_val = this_cluster.accum_val - merged_cluster.accum_val
+                    for mbr in this_cluster.members:
+                        accum_data[mbr] += correction_val
+                        membership[mbr] = merged_index
 
-                    mergedCluster.members.extend(thisCluster.members)
-                    mergedCluster.extent += thisCluster.extent
+                    merged_cluster.members.extend(this_cluster.members)
+                    merged_cluster.extent += this_cluster.extent
+                    # designate (old) cluster as dead
+                    dead_clusters.add(tclust)
+                    # deallocate member list
+                    cluster_list[tclust].members = []
 
-                    deadClusters.add(tclust) # designate (old) cluster as dead
-                    clusterList[tclust].members = [] # deallocate member list
-
-            mergedCluster.add_member(node, value, areaData[node]) # will not trigger recomputation; we already recomputed at this value
+            # will not trigger recomputation; we already recomputed at this value
+            merged_cluster.add_member(node, value, area_data[node])
 
             # the node they merge on must not get the peak value of the cluster,
             # so again, record its difference from peak
-            accumData[node] -= mergedCluster.accum_val
-            membership[node] = mergedIndex
+            accum_data[node] -= merged_cluster.accum_val
+            membership[node] = merged_index
 
             # do not reset the accum value of the merged cluster,
             # we specifically avoided modifying the per-node accum for its
             # members, so the cluster accum is still in play
 
     # final clean up of accum data
-    for i, thisCluster in enumerate(clusterList):
-
-        if not (i in deadClusters): # ignore clusters that don't exist
-            thisCluster.update(0.0) # update to include the to-zero slice
-            for mbr in thisCluster.members:
+    for i, this_cluster in enumerate(cluster_list):
+        # ignore clusters that don't exist
+        if i not in dead_clusters:
+            # update to include the to-zero slice
+            this_cluster.update(0.0)
+            for mbr in this_cluster.members:
                 # add the resulting slice to all members -
-                # their stored data contains the offset between the cluster peak and their corect value
-                accumData[mbr] += thisCluster.accum_val
+                # their stored data contains the offset between
+                # the cluster peak and their corect value
+                accum_data[mbr] += this_cluster.accum_val
 
-    return accumData
+    return accum_data
