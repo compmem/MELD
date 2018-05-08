@@ -1,42 +1,64 @@
 import numpy as np
 import heapq
 from .cluster import sparse_dim_connectivity
+from numba import float64, jitclass, jit
+
+
+@jit(nopython=True)
+def tfce_calc(extent, param_e, upper_limit, h_plus1, lower_limit):
+
+    return np.power(extent, param_e) * \
+                (np.power(upper_limit, h_plus1)
+                 - np.power(lower_limit, h_plus1)) / h_plus1
+
+clus_spec = [
+    ()
+]
 
 
 class Cluster():
-    def __init__(self, param_E, param_H):
-        '''
+    """ TFCE cluster class
+    """
+    def __init__(self, param_e, param_h):
+        """
             Initialize empty cluster
-        '''
-        self.param_E = param_E
-        self.H_plus1 = param_H + 1
+        """
+        self.param_e = param_e
+        self.h_plus1 = param_h + 1
+        # summed TFCE over all cluster members
+        self.accum_val = 0.
+        # extent of cluster; called "totalArea" in Cpp implementation
+        self.extent = 0.
+        # list of cluster members
+        self.members = []
+        # upper limit of TFCE integral; called "lastVal" in Cpp implementation
+        self.upper_limit = 0.
 
-        self.accumVal = 0. # summed TFCE over all cluster members
-        self.extent = 0. # extent of cluster; called "totalArea" in Cpp implementation
-        self.members = [] # list of cluster members
-        self.upperLimit = 0. # upper limit of TFCE integral; called "lastVal" in Cpp implementation
-
-    def update(self, lowerLimit):
-        '''
-            Perform an incremental update to the summed TFCE integral over cluster members
+    def update(self, lower_limit):
+        """
+            Perform an incremental update to the summed TFCE integral over
+            cluster members
 
             Args
             ----
-            lowerLimit : float
+            lower_limit : float
                 lower limit of TFCE integral
                 called "bottomVal" in Cpp implementation
-        '''
-        if len(self.members)==0:
-            self.upperLimit = lowerLimit
-        elif not (lowerLimit==self.upperLimit):
-            assert(lowerLimit < self.upperLimit)
-            newSliceVal = np.power(self.extent, self.param_E) * \
-                (np.power(self.upperLimit, self.H_plus1) - np.power(lowerLimit, self.H_plus1)) / self.H_plus1
-            self.accumVal += newSliceVal
-            self.upperLimit = lowerLimit
+        """
+        if len(self.members) == 0:
+            self.upper_limit = lower_limit
+        elif not lower_limit == self.upper_limit:
+            assert lower_limit < self.upper_limit
+            new_slice_val = tfce_calc(self.extent,
+                                      self.param_e,
+                                      self.upper_limit,
+                                      self.h_plus1,
+                                      lower_limit)
+            self.accum_val += new_slice_val
+            self.upper_limit = lower_limit
 
-    def addMember(self, node, height, extent):
-        '''
+    def add_member(self, node, height, extent):
+        """
             Add a new node to cluster
 
             Args
@@ -49,13 +71,15 @@ class Cluster():
             extent : float
                 Extent of node
                 called "area" in Cpp implementation
-        '''
+        """
         self.update(height)
-        self.members.append(node) # append node to list of members
+        # append node to list of members
+        self.members.append(node)
         self.extent += extent
 
-def allocCluster(clusterList, deadClusters, param_E, param_H):
-    '''
+
+def allocCluster(clusterList, deadClusters, param_e, param_h):
+    """
         Generate a valid (new) cluster number
         If available, number for a dead cluster will be recycled
         Cluster and dead cluster lists will be updated
@@ -64,20 +88,20 @@ def allocCluster(clusterList, deadClusters, param_E, param_H):
         ----
             clusterList : list of Clusters
             deadClusters : set of Clusters
-            param_E : float
-            param_H : float
-    '''
+            param_e : float
+            param_h : float
+    """
     # verify that the lists are actually being modified in main code
     if len(deadClusters)==0:
-        clusterList.append( Cluster(param_E, param_H) )
+        clusterList.append( Cluster(param_e, param_h) )
         return len(clusterList) - 1
     else:
         ret = deadClusters.pop() # removes and returns element from set
-        clusterList[ret] = Cluster(param_E, param_H)
+        clusterList[ret] = Cluster(param_e, param_h)
         return ret
 
 def getNodeNeighbors(node, connectivity):
-    '''
+    """
         Given a connectivity matrix, get neighbors of a node
 
         Args
@@ -91,17 +115,25 @@ def getNodeNeighbors(node, connectivity):
             neighbors : numpy array of integers
                 array of node indices for neighboring nodes
 
-    '''
+    """
     # since connectivity matrix is triangular, we need to check both along rows
     # and cols
     # diagonals are all 0 in connectivity matrix (no self-neighboring) so we
     # don't need to worry about that
-    neighbors = connectivity.col[connectivity.row==node]
+    neighbors = connectivity[node]
 
     return neighbors
 
-def tfce_pos(colData, areaData, connectivity, param_E = 0.5, param_H = 2.0):
-    '''
+@jit(nopython=True)   
+def get_touching(neighbors, membership):
+    touchingClusters = set()
+    for nbr in neighbors:
+        if membership[nbr] != -1:
+            touchingClusters.add(membership[nbr])
+    return touchingClusters
+
+def tfce_pos(colData, areaData, connectivity, param_e = 0.5, param_h = 2.0):
+    """
         Compute TFCE for each node (i.e., vertex, pixel, voxel, ...)
 
         TFCE at node p is given by
@@ -142,14 +174,14 @@ def tfce_pos(colData, areaData, connectivity, param_E = 0.5, param_H = 2.0):
         ----
             colData : 1-D numpy array of floats
             areaData : 1-D numpy array of floats
-            param_E : float
-            param_H : float
+            param_e : float
+            param_h : float
 
         Returns
         -------
             accumData : 1-D numpy array of floats
                 array of TFCE values at each node
-    '''
+    """
     # colData must be n-by-1
     # areaData must be n-by-1
     # connectivity must be a sparse n-by-n matrix; upper triangular only
@@ -171,21 +203,18 @@ def tfce_pos(colData, areaData, connectivity, param_E = 0.5, param_H = 2.0):
         neighbors = getNodeNeighbors(node, connectivity)
         numNeigh = len(neighbors)
 
-        touchingClusters = set()
-        for nbr in neighbors:
-            if membership[nbr] != -1:
-                touchingClusters.add(membership[nbr])
+        touchingClusters = get_touching(neighbors, membership)
 
         numTouching = len(touchingClusters)
         if numTouching==0: # make new cluster
-            newCluster = allocCluster(clusterList, deadClusters, param_E, param_H)
-            clusterList[newCluster].addMember(node, value, areaData[node])
+            newCluster = allocCluster(clusterList, deadClusters, param_e, param_h)
+            clusterList[newCluster].add_member(node, value, areaData[node])
             membership[node] = newCluster
         elif numTouching==1: # add to cluster
             whichCluster = touchingClusters.pop()
-            clusterList[whichCluster].addMember(node, value, areaData[node])
+            clusterList[whichCluster].add_member(node, value, areaData[node])
             membership[node] = whichCluster
-            accumData[node] -= clusterList[whichCluster].accumVal
+            accumData[node] -= clusterList[whichCluster].accum_val
         else: # merge all touching clusters
             # find the biggest cluster (i.e., with most members) and use as merged cluster
             mergedIndex = -1
@@ -209,7 +238,7 @@ def tfce_pos(colData, areaData, connectivity, param_E = 0.5, param_H = 2.0):
                     thisCluster = clusterList[tclust]
                     thisCluster.update(value) # recalculate to align cluster bottoms
 
-                    correctionVal = thisCluster.accumVal - mergedCluster.accumVal
+                    correctionVal = thisCluster.accum_val - mergedCluster.accum_val
                     for mbr in thisCluster.members:
                         accumData[mbr] += correctionVal
                         membership[mbr] = mergedIndex
@@ -220,11 +249,11 @@ def tfce_pos(colData, areaData, connectivity, param_E = 0.5, param_H = 2.0):
                     deadClusters.add(tclust) # designate (old) cluster as dead
                     clusterList[tclust].members = [] # deallocate member list
 
-            mergedCluster.addMember(node, value, areaData[node]) # will not trigger recomputation; we already recomputed at this value
+            mergedCluster.add_member(node, value, areaData[node]) # will not trigger recomputation; we already recomputed at this value
 
             # the node they merge on must not get the peak value of the cluster,
             # so again, record its difference from peak
-            accumData[node] -= mergedCluster.accumVal
+            accumData[node] -= mergedCluster.accum_val
             membership[node] = mergedIndex
 
             # do not reset the accum value of the merged cluster,
@@ -239,6 +268,6 @@ def tfce_pos(colData, areaData, connectivity, param_E = 0.5, param_H = 2.0):
             for mbr in thisCluster.members:
                 # add the resulting slice to all members -
                 # their stored data contains the offset between the cluster peak and their corect value
-                accumData[mbr] += thisCluster.accumVal
+                accumData[mbr] += thisCluster.accum_val
 
     return accumData

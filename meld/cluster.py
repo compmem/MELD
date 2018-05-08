@@ -240,7 +240,7 @@ def pval_from_histogram(T, H0, tail):
     return pval
 
 
-def sparse_dim_connectivity(dim_con, triu=True):
+def sparse_dim_connectivity(dim_con, triu=True, row_dict=False):
     """
     Create a sparse matrix capturing the connectivity of a conjunction
     of dimensions.
@@ -272,14 +272,22 @@ def sparse_dim_connectivity(dim_con, triu=True):
             # extend the row/col connections
             rows.extend(np.nonzero(dind[i] == r[j])[0])
             cols.extend(np.nonzero(dind[i] == c[j])[0])
-    if not triu:
+    if (not triu) | row_dict:
         tmp = rows.copy()
         rows.extend(cols)
         cols.extend(tmp)
-    # create the sparse connectivity matrix
-    data = np.ones(len(rows))
-    cmat = sparse.coo_matrix((data, (rows, cols)),
-                             shape=(nelements, nelements))
+    cmat = {}
+    if row_dict:
+        for r,c in zip(rows, cols):
+            try:
+                cmat[r] = np.append(cmat[r], c)
+            except KeyError:
+                cmat[r] = np.array([c])
+    else:
+        # create the sparse connectivity matrix
+        data = np.ones(len(rows))
+        cmat = sparse.coo_matrix((data, (rows, cols)),
+                                 shape=(nelements, nelements))
 
     return cmat
 
