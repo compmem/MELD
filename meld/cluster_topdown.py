@@ -4,16 +4,12 @@ from .cluster import sparse_dim_connectivity
 from numba import float64, jitclass, jit
 
 
-@jit(nopython=True)
+#@jit(nopython=True)
 def tfce_calc(extent, param_e, upper_limit, h_plus1, lower_limit):
 
     return np.power(extent, param_e) * \
                 (np.power(upper_limit, h_plus1)
                  - np.power(lower_limit, h_plus1)) / h_plus1
-
-clus_spec = [
-    ()
-]
 
 
 class Cluster():
@@ -127,7 +123,7 @@ def get_node_neighbors(node, connectivity):
     return neighbors
 
 
-@jit(nopython=True)
+#@jit(nopython=True)
 def get_touching(neighbors, membership):
     """ Numba function to get cluster membership of neighboring clusters
 
