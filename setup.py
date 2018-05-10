@@ -11,6 +11,17 @@
 from setuptools import setup
 from codecs import open
 from os import path
+from Cython.Build import cythonize
+from distutils.extension import Extension
+from Cython.Compiler.Options import get_directive_defaults
+
+directive_defaults = get_directive_defaults()
+directive_defaults['linetrace'] = True
+directive_defaults['binding'] = True
+
+extensions = [
+    Extension('meld.cluster_topdown', ['meld/cluster_topdown.pyx'], define_macros=[('CYTHON_TRACE', '1')])
+]
 
 here = path.abspath(path.dirname(__file__))
 
@@ -54,5 +65,6 @@ setup(
     ],
     keywords='mixed effects models rpy2',
 
-    install_requires=['numpy', 'scipy', 'rpy2', 'joblib', 'jinja2', 'pandas']
+    install_requires=['numpy', 'scipy', 'rpy2', 'joblib', 'jinja2', 'pandas'],
+    ext_modules=cythonize(path.join(here, "meld/cluster_topdown.pyx"), gdb_debug=True)
     )
