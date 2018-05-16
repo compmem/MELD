@@ -14,13 +14,22 @@ from os import path
 from Cython.Build import cythonize
 from distutils.extension import Extension
 from Cython.Compiler.Options import get_directive_defaults
+import numpy as np
+
+# If building on OSX, may need to do this first:
+#  export CFLAGS="-I/usr/local/lib/python2.7/site-packages/numpy/core/include $CFLAGS"
 
 directive_defaults = get_directive_defaults()
 directive_defaults['linetrace'] = True
 directive_defaults['binding'] = True
 
 extensions = [
-    Extension('meld.cluster_topdown', ['meld/cluster_topdown.pyx'], define_macros=[('CYTHON_TRACE', '1')])
+    Extension('meld.cluster_topdown', ['meld/cluster_topdown.pyx'], define_macros=[('CYTHON_TRACE', '1')]),
+    Extension('meld.tfce',
+              ['meld/tfce.pyx'],
+              define_macros=[('CYTHON_TRACE', '1')],
+              include_dirs=[np.get_include()]),
+    Extension('meld.pycluster', ['meld/pycluster.pyx'])
 ]
 
 here = path.abspath(path.dirname(__file__))
@@ -39,6 +48,7 @@ setup(
 
     packages=['meld'],
     package_dir={"meld": "meld"},
+    package_data={'meld': ['*.pxd']},
 
     author=['Per B. Sederberg', 'Dylan M. Nielson'],
     maintainer=['Per B. Sederberg', 'Dylan M. Nielson'],
@@ -65,6 +75,9 @@ setup(
     ],
     keywords='mixed effects models rpy2',
 
-    install_requires=['numpy', 'scipy', 'rpy2', 'joblib', 'jinja2', 'pandas'],
-    ext_modules=cythonize(path.join(here, "meld/cluster_topdown.pyx"), gdb_debug=True)
+    #install_requires=['numpy', 'scipy', 'rpy2', 'joblib', 'jinja2', 'pandas'],
+    ext_modules=cythonize(extensions,
+                          gdb_debug=True),
+    zip_safe=False
     )
+

@@ -185,7 +185,7 @@ cdef get_touching(long [:] neighbors, long [:] membership):
     return (touching_clusters, num_touching)
 
 cpdef write_test():
-    print("written")
+    print("v0.0.2")
     print("docker build only")
 
 cpdef tfce_pos(col_data, double area, connectivity, double param_e=0.5, double param_h=2.0):
