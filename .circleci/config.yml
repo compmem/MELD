@@ -8,7 +8,7 @@ jobs:
 
       - run: docker build -t compmem/meld:$CIRCLE_BUILD_NUM-${CIRCLE_SHA1:0:6} .
 
-      - run: docker run compmem/meld:$CIRCLE_BUILD_NUM-${CIRCLE_SHA1:0:6} meld/runtests.sh 
+      - run: docker run compmem/meld:$CIRCLE_BUILD_NUM-${CIRCLE_SHA1:0:6} /meld/runtests.sh 
 
       - run: docker tag compmem/meld:$CIRCLE_BUILD_NUM-${CIRCLE_SHA1:0:6} compmem/meld:latest
      
