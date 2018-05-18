@@ -134,6 +134,7 @@ cdef void four_d_TFCE(float [:,:,:,::1] data_view, float [::1] accum_data_view, 
                 which_cluster = deref(touching_clusters.begin())
                 cluster_list[which_cluster].addMember(voxel, value, volume, param_e, param_h)
                 membership[voxel_index] = which_cluster
+                accum_data_view[voxel_index] -= cluster_list[which_cluster].accumVal
             # If touching multiple clusters, merge them all, biggest first
             else:
                 merged_index = -1
@@ -175,7 +176,7 @@ cdef void four_d_TFCE(float [:,:,:,::1] data_view, float [::1] accum_data_view, 
                 cluster_list[merged_index].addMember(voxel, value, volume, param_e, param_h)
                 # the element they merge on must not get the peak value of the cluster,
                 # so again, record its difference from peak
-                accum_data_view[voxel_index] = cluster_list[merged_index].accumVal
+                accum_data_view[voxel_index] -= cluster_list[merged_index].accumVal
                 membership[voxel_index] = merged_index
                 
                 # do not reset the accum value of the merged cluster,
@@ -207,10 +208,9 @@ cdef void four_d_TFCE(float [:,:,:,::1] data_view, float [::1] accum_data_view, 
                 membership[voxel_index] = new_cluster
             elif num_touching == 1:
                 which_cluster = deref(touching_clusters.begin())
-
-
                 cluster_list[which_cluster].addMember(voxel, value, volume, param_e, param_h)
                 membership[voxel_index] = which_cluster
+                accum_data_view[voxel_index] -= cluster_list[which_cluster].accumVal
             else:
                 merged_index = -1
                 biggest_size = 0
@@ -234,7 +234,7 @@ cdef void four_d_TFCE(float [:,:,:,::1] data_view, float [::1] accum_data_view, 
                         dead_clusters.insert(clust)
                         vector[VoxelIJK]().swap(cluster_list[clust].members)
                 cluster_list[merged_index].addMember(voxel, value, volume, param_e, param_h)
-                accum_data_view[voxel_index] = cluster_list[merged_index].accumVal
+                accum_data_view[voxel_index] -= cluster_list[merged_index].accumVal
                 membership[voxel_index] = merged_index
                 
     for clust in range(cluster_list.size()):
@@ -318,6 +318,7 @@ def tfce(data, float volume=1.0, float param_e=0.66666666, float param_h=2.0, pa
     """
     
     # Add axes to get data to 4 dimensional
+    orig_shape = data.shape
     if len(data.shape) == 1:
         data = data[np.newaxis, np.newaxis,np.newaxis,:]
     elif len(data.shape) == 2:
@@ -347,6 +348,8 @@ def tfce(data, float volume=1.0, float param_e=0.66666666, float param_h=2.0, pa
         accum_data = accum_data[1:-1, 1:-1, 1:-1, 1:-1]
     # Make the negative values negative
     accum_data[data<0] *= -1
+    # Strip off any added dimensions
+    accum_data = accum_data.reshape(orig_shape)
     return accum_data        
 
 

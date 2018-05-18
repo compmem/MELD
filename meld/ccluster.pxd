@@ -20,7 +20,7 @@ cdef extern from "Common/VoxelIJK.h" namespace "caret":
 cdef extern from "cluster.h" namespace "Cluster":
     cdef cppclass Cluster:
         Cluster() except +
-        double accumVal, totalVolume
+        float accumVal, totalVolume
         vector[VoxelIJK] members
         bool first
         void addMember(const VoxelIJK& voxel, const float& val, const float& area, const float& param_e, const float& param_h) except +
