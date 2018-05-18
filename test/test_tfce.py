@@ -7,7 +7,7 @@ from os import path
 here = path.abspath(path.dirname(__file__))
 
 def test_tfce():
-    with open("tfce_test_data.pkl", "rb") as h:
+    with open(path.join(here,"tfce_test_data.pkl"), "rb") as h:
         tfce_tests = pickle.load(h)
     for pad in [True, False]:
         for td in tfce_tests[:-3]:
