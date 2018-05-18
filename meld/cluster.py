@@ -240,7 +240,7 @@ def pval_from_histogram(T, H0, tail):
     return pval
 
 
-def sparse_dim_connectivity(dim_con):
+def sparse_dim_connectivity(dim_con, row_dict=False, row_list=False):
     """
     Create a sparse matrix capturing the connectivity of a conjunction
     of dimensions.
@@ -273,20 +273,36 @@ def sparse_dim_connectivity(dim_con):
             rows.extend(np.nonzero(dind[i] == r[j])[0])
             cols.extend(np.nonzero(dind[i] == c[j])[0])
 
-    # create the sparse connectivity matrix
-    data = np.ones(len(rows))
-    cmat = sparse.coo_matrix((data, (rows, cols)),
-                             shape=(nelements, nelements))
+    if row_dict:
+        cmat = {}
+        for r, c in zip(rows, cols):
+            try:
+                cmat[r] = np.append(cmat[r], c)
+            except KeyError:
+                cmat[r] = np.array([c])
+    elif row_list:
+        cmat = [np.array([], dtype=np.intp) for r in rows]
+        for r, c in zip(rows, cols):
+            cmat[r] = np.append(cmat[r], np.intp(c))
+    else:
+        # create the sparse connectivity matrix
+        data = np.ones(len(rows))
+        cmat = sparse.coo_matrix((data, (rows, cols)),
+                                 shape=(nelements, nelements))
 
     return cmat
 
-def simple_neighbors_1d(n):
+def simple_neighbors_1d(n, triu=True):
     """
     Return connectivity for simple 1D neighbors.
     """
     c = np.zeros((n, n))
     c[np.triu_indices(n, 1)] = 1
     c[np.triu_indices(n, 2)] = 0
+
+    if not triu:
+        c[np.tril_indices(n, -1)] = 1
+        c[np.tril_indices(n, -2)] = 0
     return c
 
 

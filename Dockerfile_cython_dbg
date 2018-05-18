@@ -1,0 +1,21 @@
+FROM ubuntu:16.04
+
+RUN apt-get update && apt-get install -y wget nano python-dbg python-numpy-dbg python3-dbg python3-numpy-dbg build-essential texinfo python-pip python3-pip python-dev python3-dev r-base
+
+RUN wget http://ftp.gnu.org/gnu/gdb/gdb-8.1.tar.gz && tar -xf gdb-8.1.tar.gz
+
+WORKDIR /gdb-8.1
+
+RUN ./configure --with-python=python && make && make install
+
+RUN pip install cython && pip3 install cython
+
+COPY . /code/meld
+
+WORKDIR /code/meld
+
+RUN ls && pwd && python3-dbg setup.py install 
+
+WORKDIR /code/meld
+
+RUN python3-dbg setup.py build_ext --inplace
