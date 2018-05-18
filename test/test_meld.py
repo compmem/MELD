@@ -4,7 +4,7 @@ from meld.meld import MELD
 np.random.RandomState(seed = 42)
 
 # test some MELD
-n_jobs = -1
+n_jobs = 2
 verbose = 10
 
 # generate some fake data
