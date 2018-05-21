@@ -878,6 +878,7 @@ class MELD(object):
 
         # prepare for the perms and boots and jackknife
         self._perms = []
+        self._boots = []
         self._tp = []
         self._tb = []
         self._tj = []
@@ -943,6 +944,9 @@ class MELD(object):
         run.
 
         """
+        if self._boots:
+            raise ValueError("You should not run perms and bootstraps on the same model. "
+                             "You are trying to run perms and bootstraps have already been run")
         if n_jobs is None:
             n_jobs = self._n_jobs
         if verbose is None:
@@ -978,6 +982,62 @@ class MELD(object):
                        # backend='threading',
                        verbose=verbose)(delayed(_eval_model)(id(self), perm)
                                         for perm in perms)
+        tp, tfs, feat_mask = zip(*res)
+        self._tp.extend(tp)
+        self._tb.extend(tfs)
+        self._pfmask.extend(feat_mask)
+
+        if verbose > 0:
+            sys.stdout.write('Done (%.2g sec)\n' % (time.time()-start_time))
+            sys.stdout.flush()
+
+    def run_boots(self, boots, n_jobs=None, verbose=None):
+        """Run the specified bootstraps.
+
+        This method will append to the bootstraps you have already
+        run.
+
+        """
+        if self._perms:
+            raise ValueError("You should not run perms and bootstraps on the same model. "
+                             "You are trying to run bootstraps and perms have already been run")
+
+        if n_jobs is None:
+            n_jobs = self._n_jobs
+        if verbose is None:
+            verbose = self._verbose
+
+        if not isinstance(boots, list):
+            # boots is nboots
+            nboots = boots
+
+            # gen the perms ahead of time
+            boots = []
+            for p in range(nboots):
+                ind = {}
+                boot_groups = np.random.choice(self._groups, len(self._groups))
+                for k, bg in zip(self._groups, boot_groups):
+                    # gen a perm for that subj
+                    ind[k] = self._A[bg]
+
+                boots.append(ind)
+        else:
+            # calc nperms
+            nboots = len(boots)
+
+        if verbose > 0:
+            sys.stdout.write('Running %d bootstraps ...\n' % nboots)
+            sys.stdout.flush()
+            start_time = time.time()
+
+        # save the perms
+        self._boots.extend(boots)
+
+        # must use the threading backend
+        res = Parallel(n_jobs=n_jobs,
+                       # backend='threading',
+                       verbose=verbose)(delayed(_eval_model)(id(self), boot)
+                                        for boot in boots)
         tp, tfs, feat_mask = zip(*res)
         self._tp.extend(tp)
         self._tb.extend(tfs)
