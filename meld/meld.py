@@ -70,6 +70,9 @@ else:
 from . import cluster
 from . import stat_helper
 
+# load cython tfce
+from . import tfce
+
 fdr_correction = stat_helper.fdr_correction
 
 # deal with warnings for bootstrap
@@ -297,7 +300,7 @@ class OnlineVariance(object):
         return np.sqrt(self.variance)
 
 
-def R_to_tfce(R, connectivity=None, shape=None,
+def R_to_tfce(R, mask, connectivity=None, shape=None,
               dt=.01, E=2/3., H=2.0):
     """Apply TFCE to the R values."""
     # allocate for tfce
@@ -307,19 +310,27 @@ def R_to_tfce(R, connectivity=None, shape=None,
     # loop
     for i in range(Rt.shape[0]):
         for j in range(Rt.shape[1]):
-            # apply tfce in pos and neg direction
-            Zin = Z[i, j]
             if connectivity is None:
+                # If there's no connectivity defined
+                # Use the fast neighbors tfce
+                Zin = np.zeros(mask.shape)
+                Zin[mask] = Z[i, j]
                 # reshape back
                 Zin = Zin.reshape(*shape)
-            Rt[i, j] += cluster.tfce(Zin,
-                                     dt=dt, tail=1,
-                                     connectivity=connectivity,
-                                     E=E, H=H).flatten()
-            Rt[i, j] += cluster.tfce(Zin,
-                                     dt=dt, tail=-1,
-                                     connectivity=connectivity,
-                                     E=E, H=H).flatten()
+                Rt[i, j] += tfce.tfce(Zin, volume=1,
+                                      param_e=E, param_h=H,
+                                      pad=True)[mask]
+            else:
+                # apply tfce in pos and neg direction
+                Zin = Z[i, j]
+                Rt[i, j] += cluster.tfce(Zin,
+                                         dt=dt, tail=1,
+                                         connectivity=connectivity,
+                                         E=E, H=H).flatten()
+                Rt[i, j] += cluster.tfce(Zin,
+                                         dt=dt, tail=-1,
+                                         connectivity=connectivity,
+                                         E=E, H=H).flatten()
     return Rt
 
 
@@ -458,7 +469,7 @@ def _eval_model(model_id, perm=None):
 
     if mm._do_tfce:
         # run TFCE
-        Ztemp = R_to_tfce(R_nocat, connectivity=mm._connectivity,
+        Ztemp = R_to_tfce(R_nocat, mm._dep_mask, connectivity=mm._connectivity,
                           shape=mm._feat_shape,
                           dt=mm._dt, E=mm._E, H=mm._H)
     else:
@@ -664,6 +675,10 @@ class MELD(object):
         ind_data can be a rec_array for each group or one large rec_array
         with a grouping variable.
 
+        If connectivity is not passed, facing connectivity is used with
+        fast cythonized TFCE. Otherwise PTSA's connectivity is used. 
+        The fast TFCE's output is tested against HCP's output.
+
         """
         if verbose>0:
             sys.stdout.write('Initializing...')
@@ -769,20 +784,22 @@ class MELD(object):
                                          dtype=np.bool)
 
             # create the connectivity (will mask later)
-            if self._do_tfce and self._connectivity is None and \
-               (len(self._dep_mask.flatten()) > self._dep_mask.sum()):
-                # create the connectivity
-                self._connectivity = cluster.sparse_dim_connectivity([cluster.simple_neighbors_1d(n)
-                                                                      for n in self._feat_shape])
+            # if self._do_tfce and self._connectivity is None and \
+            #    (len(self._dep_mask.flatten()) > self._dep_mask.sum()):
+            #     # create the connectivity
+            #     self._connectivity = cluster.sparse_dim_connectivity([cluster.simple_neighbors_1d(n)
+            #                                                           for n in self._feat_shape])
 
             # Save D index into data (apply row and feature masks
             # This will also reshape it
             self._D[g] = dep_data[dep_ind][row_ind][:, self._dep_mask].copy()
-
+            #self._D[g] = dep_data[dep_ind][row_ind].copy()
+            #self._D[g][:, ~self._dep_mask] = 0
             # TODO: Make sure that there is still data in _D
 
             # reshape it
-            #self._D[g] = self._D[g].reshape((self._D[g].shape[0], -1))
+            # self._D[g] = self._D[g].reshape((self._D[g].shape[0], -1))
+
             if use_ranks:
                 if verbose > 0:
                     sys.stdout.write('Ranking %s...' % (str(g)))
@@ -856,7 +873,7 @@ class MELD(object):
         self._factors = factors
 
         # mask the connectivity
-        if self._do_tfce and (len(self._dep_mask.flatten()) > self._dep_mask.sum()):
+        if self._do_tfce and (self._connectivity is not None) and (len(self._dep_mask.flatten()) > self._dep_mask.sum()):
             self._connectivity = self._connectivity.tolil()[self._dep_mask.flatten()].tocsc()[:,self._dep_mask.flatten()].tocoo()
 
         # prepare for the perms and boots and jackknife

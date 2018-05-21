@@ -4,7 +4,7 @@ from meld.meld import MELD
 np.random.RandomState(seed = 42)
 
 # test some MELD
-n_jobs = 2
+n_jobs = 1
 verbose = 10
 
 # generate some fake data
@@ -52,6 +52,7 @@ if smoothed:
 
 
 def test_meld():
+    print('Data shape:', dep_data.shape)
     print("Starting MELD test")
     print("beh has signal, beh2 does not")
     me_s = MELD('val ~ beh+beh2', '(1|subj)', 'subj',

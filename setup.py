@@ -25,6 +25,7 @@ if USE_CYTHON:
     from Cython.Compiler.Options import get_directive_defaults
 
 if USE_CYTHON and DEBUG:
+    print("Using Cython with Debug Flags")
     extensions = [
         Extension('meld.cluster_topdown', ['meld/cluster_topdown.pyx'], define_macros=[('CYTHON_TRACE', '1')]),
         Extension('meld.tfce',
@@ -39,6 +40,7 @@ if USE_CYTHON and DEBUG:
     extensions = cythonize(extensions, gdb_debug=True)
 
 elif USE_CYTHON:
+    print("Using Cython")
     extensions = [
         Extension('meld.cluster_topdown', ['meld/cluster_topdown.pyx']),
         Extension('meld.tfce',

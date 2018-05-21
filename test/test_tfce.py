@@ -11,7 +11,7 @@ def test_tfce():
         tfce_tests = pickle.load(h)
     for pad in [True, False]:
         for td in tfce_tests[:-3]:
-            res = tfce(td['test'], pad=True)
+            res = tfce(td['test'], pad=pad)
             assert res.shape == td['test'].shape
             # Make sure the positive and negative values are in the right place
             assert (res[((res < 0) != (td['test'] < 0))]==0).all()
