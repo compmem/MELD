@@ -12,9 +12,9 @@ COPY . /meld
 
 RUN pip3 --no-cache-dir install /meld
 
-RUN /usr/local/bin/ipython -c "import meld"
+RUN /usr/local/bin/ipython -c "import meld" && mkdir -p /meld_root/work/data /meld_root/work/code
 
-RUN chmod -R 777 /meld
+RUN chmod -R 777 /meld && chmod -R 777 /meld_root && 
 
 ENV JOBLIB_START_METHOD='forkserver' \
     LANG=C.UTF-8 \
