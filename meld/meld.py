@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 from numpy.lib.recfunctions import append_fields
 from scipy.linalg import diagsvd
-from scipy.stats import rankdata
+from scipy.stats import rankdata, gaussian_kde
 import scipy.stats.distributions as dists
 
 from joblib import Parallel, delayed
@@ -229,6 +229,7 @@ class LMER():
             #perms = [np.arange(len(self._rdf[self._col_ind]))]
 
         # run on each permutation
+        betas = None
         tvals = None
         log_likes = None
         for i, perm in enumerate(perms):
@@ -262,16 +263,20 @@ class LMER():
                 # init the data
                 # get the row names
                 rows = list(r['row.names'](df))
+                betas = np.rec.fromarrays([np.ones(len(perms))*np.nan
+                                           for ro in range(len(rows))],
+                                          names=','.join(rows))
                 tvals = np.rec.fromarrays([np.ones(len(perms))*np.nan
                                            for ro in range(len(rows))],
                                           names=','.join(rows))
                 log_likes = np.zeros(len(perms))
 
             # set the values
+            betas[i] = tuple(df.rx2('Estimate'))
             tvals[i] = tuple(df.rx2('t.value'))
             log_likes[i] = float(r['logLik'](ms)[0])
 
-        return tvals, log_likes
+        return betas, tvals, log_likes
 
 
 
@@ -422,15 +427,18 @@ def blockwise_dot(A, B, max_elements=int(2**26), out=None):
 _global_meld = {}
 
 
-def _eval_model(model_id, perm=None):
+def _eval_model(model_id, perm=None, boot=None):
     # set vars from model
     mm = _global_meld[model_id]
     _R = mm._R
 
     # Calculate R
     R = []
+    if boot is None:
+        ind_b = np.arange(len(mm._groups))
+    else:
+        ind_b = boot
 
-    ind_b = np.arange(len(mm._groups))
 
     # loop over group vars
     ind = {}
@@ -492,7 +500,7 @@ def _eval_model(model_id, perm=None):
     R_nocat[:, ~stable_ind] = 0.0
 
     # save R before concatenating if not a permutation
-    if perm is None and _R is None:
+    if perm is None and boot is None and _R is None:
         _R = R_nocat.copy()
 
     # concatenate R for SVD
@@ -551,11 +559,15 @@ def _eval_model(model_id, perm=None):
             mer = r['refit'](mer, FloatVector(Dw))
             df = r['data.frame'](r_coef(r['summary'](mer)))
             rows = list(r['row.names'](df))
+            new_betas = np.rec.fromarrays([[tv]
+                                           for tv in tuple(df.rx2('Estimate'))],
+                                          names=','.join(rows))
             new_tvals = np.rec.fromarrays([[tv]
                                            for tv in tuple(df.rx2('t.value'))],
                                           names=','.join(rows))
+
             new_ll = float(r['logLik'](mer)[0])
-            res.append((new_tvals, np.array([new_ll])))
+            res.append((new_betas, new_tvals, np.array([new_ll])))
 
     if len(res) == 0:
         # must make dummy data
@@ -572,50 +584,57 @@ def _eval_model(model_id, perm=None):
                         **mm._lmer_opts)
 
         Dw = np.random.randn(len(np.concatenate(O)))
-        temp_t, temp_ll = lmer.run(vals=Dw)
+        temp_b, temp_t, temp_ll = lmer.run(vals=Dw)
 
         for n in temp_t.dtype.names:
+            temp_b[n] = 0.0
             temp_t[n] = 0.0
         temp_ll[0] = 0.0
-        res.append((temp_t, temp_ll))
+        res.append((temp_b, temp_t, temp_ll))
 
         # must make ss, too
         ss = np.array([1.0])
         # print "perm fail"
 
     # pull out data from all the components
-    tvals, log_likes = zip(*res)
+    betas, tvals, log_likes = zip(*res)
+    betas = np.concatenate(betas)
     tvals = np.concatenate(tvals)
     log_likes = np.concatenate(log_likes)
 
     # recombine and scale the tvals across components
+    bs = np.rec.fromarrays([np.dot(betas[k],
+                                   ss[ss > 0.0] / _ss)  # /(ss>0.).sum()
+                            for k in tvals.dtype.names],
+                           names=','.join(tvals.dtype.names))
     ts = np.rec.fromarrays([np.dot(tvals[k],
                                    ss[ss > 0.0] / _ss)  # /(ss>0.).sum()
                             for k in tvals.dtype.names],
                            names=','.join(tvals.dtype.names))
 
     # scale tvals across features
+    bfs = []
     tfs = []
+    ss_diag = diagsvd(ss[ss > 0], len(ss[ss > 0]), len(ss[ss > 0]))
+    ssVh = blockwise_dot(ss_diag, Vh[ss > 0, ...])
     for k in tvals.dtype.names:
         # tfs.append(np.dot(tvals[k],
         #                   np.dot(diagsvd(ss[ss > 0],
         #                                  len(ss[ss > 0]),
         #                                  len(ss[ss > 0])),
         #                          Vh[ss > 0, ...])))  # /(ss>0).sum())
-        tfs.append(blockwise_dot(tvals[k],
-                                 blockwise_dot(diagsvd(ss[ss > 0],
-                                         len(ss[ss > 0]),
-                                         len(ss[ss > 0])),
-                                 Vh[ss > 0, ...])))
+        bfs.append(blockwise_dot(betas[k], ssVh))
+        tfs.append(blockwise_dot(tvals[k], ssVh))
+    bfs = np.rec.fromarrays(bfs, names=','.join(tvals.dtype.names))
     tfs = np.rec.fromarrays(tfs, names=','.join(tvals.dtype.names))
 
     # decide what to return
-    if perm is None:
+    if perm is None and boot is None:
         # return tvals, tfs, and R for actual non-permuted data
-        out = (ts, tfs, _R, feat_mask, _ss, mer)
+        out = (bs, ts, bfs, tfs, _R, feat_mask, _ss, mer)
     else:
         # return the tvals for the terms
-        out = (ts, tfs, ~feat_mask[0])
+        out = (bs, ts, bfs, tfs, ~feat_mask[0])
 
     return out
 
@@ -706,6 +725,9 @@ class MELD(object):
         self._dt = dt
         self._E = E
         self._H = H
+        # Eventually set the number of boots to use to
+        # estimate feature level variance
+        self._fvar_nboot = None
 
         # see if memmapping
         self._memmap = memmap
@@ -879,7 +901,9 @@ class MELD(object):
         # prepare for the perms and boots and jackknife
         self._perms = []
         self._boots = []
+        self._bp = []
         self._tp = []
+        self._bb = []
         self._tb = []
         self._tj = []
         self._pfmask = []
@@ -897,9 +921,11 @@ class MELD(object):
         self._R = None
         self._ss = None
         self._mer = None
-        tp, tb, R, feat_mask, ss, mer = _eval_model(id(self), None)
+        bp, tp, bb, tb, R, feat_mask, ss, mer = _eval_model(id(self), None)
         self._R = R
+        self._bp.append(bp)
         self._tp.append(tp)
+        self._bb.append(bb)
         self._tb.append(tb)
         self._feat_mask = feat_mask
         self._fmask = ~feat_mask[0]
@@ -937,7 +963,7 @@ class MELD(object):
         if _global_meld and my_id in _global_meld:
             del _global_meld[my_id]
 
-    def run_perms(self, perms, n_jobs=None, verbose=None):
+    def run_perms(self, perms, n_jobs=None, verbose=None, backend="multiprocessing"):
         """Run the specified permutations.
 
         This method will append to the permutations you have already
@@ -976,14 +1002,15 @@ class MELD(object):
 
         # save the perms
         self._perms.extend(perms)
-
         # must use the threading backend
         res = Parallel(n_jobs=n_jobs,
-                       # backend='threading',
+                       backend=backend,
                        verbose=verbose)(delayed(_eval_model)(id(self), perm)
                                         for perm in perms)
-        tp, tfs, feat_mask = zip(*res)
+        bp, tp, bfs, tfs, feat_mask = zip(*res)
+        self._bp.extend(bp)
         self._tp.extend(tp)
+        self._bb.extend(bfs)
         self._tb.extend(tfs)
         self._pfmask.extend(feat_mask)
 
@@ -991,7 +1018,7 @@ class MELD(object):
             sys.stdout.write('Done (%.2g sec)\n' % (time.time()-start_time))
             sys.stdout.flush()
 
-    def run_boots(self, boots, n_jobs=None, verbose=None):
+    def run_boots(self, boots, fvar_nboot=None, n_jobs=None, verbose=None, backend="multiprocessing"):
         """Run the specified bootstraps.
 
         This method will append to the bootstraps you have already
@@ -1000,7 +1027,21 @@ class MELD(object):
         """
         if self._perms:
             raise ValueError("You should not run perms and bootstraps on the same model. "
-                             "You are trying to run bootstraps and perms have already been run")
+                             "You are trying to run bootstraps, but perms have already been run")
+        # Deal with the number of boots for estimating feature variance
+        if self._fvar_nboot is None and fvar_nboot is not None:
+            if fvar_nboot < 0:
+                raise ValueError("fvar_nboot must be greater than 0")
+            self._fvar_nboot =  fvar_nboot
+        elif self._fvar_nboot is not None and  fvar_nboot is not None:
+            raise Exception("You've already set the number of bootsrtaps to use for"
+                            "estimating feature vaiance. You can't change it now."
+                            "I haven't actually made the attribute read only,"
+                            "but if you set it to another value, your ts and ps"
+                            "will no longer be accurate.")
+        else:
+            self._fvar_nboot = 1
+
 
         if n_jobs is None:
             n_jobs = self._n_jobs
@@ -1010,23 +1051,23 @@ class MELD(object):
         if not isinstance(boots, list):
             # boots is nboots
             nboots = boots
-
-            # gen the perms ahead of time
             boots = []
-            for p in range(nboots):
-                ind = {}
-                boot_groups = np.random.choice(self._groups, len(self._groups))
-                for k, bg in zip(self._groups, boot_groups):
-                    # gen a perm for that subj
-                    ind[k] = self._A[bg]
-
-                boots.append(ind)
+            for n in range(self._fvar_nboot-1):
+                boots.append(np.random.choice(range(len(self._groups)), len(self._groups)))
+            for _i in range(nboots):
+                tmp_boot = np.random.choice(range(len(self._groups)), len(self._groups))
+                boots.append(tmp_boot)
+                for n in range(self._fvar_nboot-1):
+                    boots.append(np.random.choice(tmp_boot, len(self._groups)))
         else:
-            # calc nperms
+            # calc nboots
             nboots = len(boots)
+            if nboots % self._fvar_nboot != 0:
+                raise ValueError("The list of boostrapts provided is not"
+                                 "evenly divisible by fvar_nboot.")
 
         if verbose > 0:
-            sys.stdout.write('Running %d bootstraps ...\n' % nboots)
+            sys.stdout.write('Running %d bootstraps x %d variance estimation bootstraps = %d total bootstraps...\n' % (nboots,self._fvar_nboot, ((nboots+1)*self._fvar_nboot)-1))
             sys.stdout.flush()
             start_time = time.time()
 
@@ -1035,11 +1076,13 @@ class MELD(object):
 
         # must use the threading backend
         res = Parallel(n_jobs=n_jobs,
-                       # backend='threading',
-                       verbose=verbose)(delayed(_eval_model)(id(self), boot)
+                       backend=backend,
+                       verbose=verbose)(delayed(_eval_model)(id(self), boot=boot)
                                         for boot in boots)
-        tp, tfs, feat_mask = zip(*res)
+        bp, tp, bfs, tfs, feat_mask = zip(*res)
+        self._bp.extend(bp)
         self._tp.extend(tp)
+        self._bb.extend(bfs)
         self._tb.extend(tfs)
         self._pfmask.extend(feat_mask)
 
@@ -1077,7 +1120,15 @@ class MELD(object):
     def get_p_features(self, names=None, conj=None):
         tpf = self._tb[0].__array_wrap__(np.hstack(self._tb))
         pfmasks = np.array(self._pfmask).transpose((1, 0, 2))
-        nperms = np.float(len(self._perms)+1)
+        if self._perms:
+            nperms = np.float(len(self._perms)+1)
+        elif self._boots:
+            bpf = self._bb[0].__array_wrap__(np.hstack(self._bb))
+            nperms = (len(self._boots)+1)//self._fvar_nboot
+
+
+        else:
+            raise Exception("Must run some boots or perms before getting ps")
 
         pfs = []
         if names is None:
@@ -1087,22 +1138,39 @@ class MELD(object):
             else:
                 names = [n for n in tpf.dtype.names
                          if n != '(Intercept)']
-
         # convert all of the ts to ps
         for i, n in enumerate(names):
-            tf = tpf[n]
-            tf = np.abs(tf.reshape(int(nperms), -1))
             fmask = pfmasks[i]
-            tf[~fmask] = 0
             # make null T dist within term
-            nullTdist = tf.max(1)
-            nullTdist.sort()
+            if self._perms:
+                tf = tpf[n]
+                tf = np.abs(tf.reshape(int(nperms), -1))
+                fmask = pfmasks[i]
+                tf[~fmask] = 0
+                nullTdist = tf.max(1)
+                nullTdist.sort()
+            elif self._boots:
+                bf = bpf[n]
+                bf = bf.reshape(fmask.shape[0], -1)
+                bf[~fmask] = 0
+                bf = bf.reshape(nperms,self._fvar_nboot, -1)
+
+                # Nested bootstrap gives us mean and standard error
+                boot_mean = np.median(bf, 1)
+                boot_sem = bf.std(1)
+                # calculate bootstrap hypothesis test stat taking into account
+                # guidelines from http://www.jstor.org/stable/2532163?seq=2#page_scan_tab_contents
+                tf = np.zeros_like(boot_mean)
+                tf[0][boot_mean[0] != 0] = np.abs(((boot_mean[0])[boot_mean[0] != 0])/boot_sem[0][boot_mean[0] != 0])
+                tf[1:][boot_mean[1:] != 0] = np.abs(((boot_mean[1:] - boot_mean[0])[boot_mean[1:] != 0])/boot_sem[1:][boot_mean[1:] != 0])
+                nullTdist = tf.max(1)
+                nullTdist.sort()
             # use searchsorted to get indicies for turning ts into ps,
             # then divide by number of perms
             # got this from:
             # http://stackoverflow.com/questions/18875970/comparing-two-numpy-arrays-of-different-length
             pf = ((nperms-np.searchsorted(nullTdist, tf.flatten(), 'left')) /
-                  nperms).reshape((int(nperms), -1))
+                  nperms).reshape(nperms, -1)
             pfs.append(pf)
 
         # pfs is terms by perms by features
@@ -1115,7 +1183,7 @@ class MELD(object):
 
             # set the names to be new conj
             names = ['&'.join(names)]
-
+       
         # make null p distribution
         nullPdist = pfs.min(2).min(0)
         nullPdist.sort()
@@ -1124,6 +1192,7 @@ class MELD(object):
         pfts = np.searchsorted(nullPdist,
                                pfs[:, 0, :].flatten(),
                                'right').reshape(len(pfs), -1)/nperms
+
         pfeats = []
         for n in range(len(names)):
             pfeat = np.ones(self._feat_shape)
@@ -1132,6 +1201,7 @@ class MELD(object):
 
         # reconstruct the recarray
         pfts = np.rec.fromarrays(pfeats, names=','.join(names))
+
         return pfts
 
 
