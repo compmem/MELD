@@ -1107,10 +1107,30 @@ class MELD(object):
             names = [n for n in self.terms
                      if n != '(Intercept)']
         tfeats = []
-        for n in names:
-            tfeat = np.zeros(self._feat_shape)
-            tfeat[self._dep_mask] = self._tb[0][n][0]
-            tfeats.append(tfeat)
+        if not self._boots:
+            for n in names:
+                tfeat = np.zeros(self._feat_shape)
+                tfeat[self._dep_mask] = self._tb[0][n][0]
+                tfeats.append(tfeat)
+        else:
+            bpf = self._bb[0].__array_wrap__(np.hstack(self._bb))
+            nperms = (len(self._boots)+1)//self._fvar_nboot
+            pfmasks = np.array(self._pfmask).transpose((1, 0, 2))
+            for i, n in enumerate(names):
+                fmask = pfmasks[i]
+                bf = bpf[n]
+                bf = bf.reshape(fmask.shape[0], -1)
+                bf[~fmask] = 0
+                bf = bf.reshape(nperms,self._fvar_nboot, -1)
+
+                # Nested bootstrap gives us mean and standard error
+                boot_mean = np.mean(bf, 1)
+                boot_std = bf.std(1)
+                tf = np.zeros_like(boot_mean[0])
+                tf[boot_mean[0] != 0] = ((boot_mean[0])[boot_mean[0] != 0])/boot_std[0][boot_mean[0] != 0]
+                tfeat = np.zeros(self._feat_shape)
+                tfeat[self._dep_mask] = tf
+                tfeats.append(tfeat)
         return np.rec.fromarrays(tfeats, names=','.join(names))
 
     @property
@@ -1121,7 +1141,7 @@ class MELD(object):
         tpf = self._tb[0].__array_wrap__(np.hstack(self._tb))
         pfmasks = np.array(self._pfmask).transpose((1, 0, 2))
         if self._perms:
-            nperms = np.float(len(self._perms)+1)
+            nperms = np.int(len(self._perms)+1)
         elif self._boots:
             bpf = self._bb[0].__array_wrap__(np.hstack(self._bb))
             nperms = (len(self._boots)+1)//self._fvar_nboot
@@ -1156,13 +1176,19 @@ class MELD(object):
                 bf = bf.reshape(nperms,self._fvar_nboot, -1)
 
                 # Nested bootstrap gives us mean and standard error
-                boot_mean = np.median(bf, 1)
-                boot_sem = bf.std(1)
+                # bootstrap hypothesis test is based on:
+                # http://www.jstor.org/stable/2532163?seq=3#page_scan_tab_contents
+                # With the addition of heteroskedastic test
+                # using the following as the standard error:
+                # :<math>s_{\bar\Delta} = \sqrt{\frac{s_1^2}{n_1} + \frac{s_2^2}{n_2}}.</math>
+                boot_mean = np.mean(bf, 1)
+                boot_std = bf.std(1)
                 # calculate bootstrap hypothesis test stat taking into account
                 # guidelines from http://www.jstor.org/stable/2532163?seq=2#page_scan_tab_contents
                 tf = np.zeros_like(boot_mean)
-                tf[0][boot_mean[0] != 0] = np.abs(((boot_mean[0])[boot_mean[0] != 0])/boot_sem[0][boot_mean[0] != 0])
-                tf[1:][boot_mean[1:] != 0] = np.abs(((boot_mean[1:] - boot_mean[0])[boot_mean[1:] != 0])/boot_sem[1:][boot_mean[1:] != 0])
+                tf[0][boot_mean[0] != 0] = np.abs(((boot_mean[0])[boot_mean[0] != 0])/boot_std[0][boot_mean[0] != 0])
+                sdelta = np.sqrt((boot_std[0]**2 + boot_std[1:]**2))
+                tf[1:][boot_mean[1:] != 0] = np.abs(((boot_mean[1:] - boot_mean[0])[boot_mean[1:] != 0])/sdelta[boot_mean[1:] != 0])
                 nullTdist = tf.max(1)
                 nullTdist.sort()
             # use searchsorted to get indicies for turning ts into ps,

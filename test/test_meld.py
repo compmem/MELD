@@ -12,6 +12,8 @@ nobs = 100
 nsubj = 10
 nfeat = (10, 30)
 nperms = 200
+nboots = 200
+fvar_nboots = 10
 use_ranks = False
 smoothed = False
 memmap = False
@@ -52,8 +54,17 @@ if smoothed:
 
 
 def test_meld():
+
+    sig_location = np.array((np.array([4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
+                                   4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5, 5,
+                                   5, 5, 5, 5, 5, 5, 5, 5, 5, 5]),
+                         np.array([2,  3,  4,  5,  6,  7,  8,  9, 10, 11,
+                                   12, 13, 14, 15, 16, 17, 18, 19,  2,  3,
+                                   4,  5,  6,  7,  8,  9, 10, 11, 12, 13,
+                                   14, 15, 16, 17, 18, 19])))
+
     print('Data shape:', dep_data.shape)
-    print("Starting MELD test")
+    print("Starting MELD perm test")
     print("beh has signal, beh2 does not")
     me_s = MELD('val ~ beh+beh2', '(1|subj)', 'subj',
                 dep_data_s, ind_data, factors={'subj': None},
@@ -74,14 +85,34 @@ def test_meld():
     pfts = me_s.p_features
     print("Number of signifcant features:", [(n, (pfts[n] <= .05).sum())
                                              for n in pfts.dtype.names])
-    sig_location = np.array((np.array([4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
-                                       4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5, 5,
-                                       5, 5, 5, 5, 5, 5, 5, 5, 5, 5]),
-                             np.array([2,  3,  4,  5,  6,  7,  8,  9, 10, 11,
-                                       12, 13, 14, 15, 16, 17, 18, 19,  2,  3,
-                                       4,  5,  6,  7,  8,  9, 10, 11, 12, 13,
-                                       14, 15, 16, 17, 18, 19])))
+
     # This is just the most basic of idiot tests
     assert (np.array(np.where(me_s.t_features['beh'] > 1000000)) == sig_location).all()
     assert ((me_s.t_features['beh2'] >100000)==0).all()
 
+    print('Data shape:', dep_data.shape)
+    print("Starting MELD bootstrap test")
+    print("beh has signal, beh2 does not")
+    me_s = MELD('val ~ beh+beh2', '(1|subj)', 'subj',
+                dep_data_s, ind_data, factors={'subj': None},
+                use_ranks=use_ranks,
+                dep_mask=dep_mask,
+                feat_nboot=1000, feat_thresh=0.05,
+                do_tfce=True,
+                connectivity=None, shape=None,
+                dt=.01, E=2/3., H=2.0,
+                n_jobs=n_jobs, verbose=verbose,
+                memmap=memmap,
+                # lmer_opts={'control':lme4.lmerControl(optimizer="nloptwrap",
+                #                                       #optimizer="Nelder_Mead",
+                #                                       optCtrl=r['list'](maxfun=100000))
+                #        }
+               )
+    me_s.run_boots(nperms, fvar_nboots)
+    pfts = me_s.p_features
+    print("Number of signifcant features:", [(n, (pfts[n] <= .05).sum())
+                                             for n in pfts.dtype.names])
+
+    # This is just the most basic of idiot tests
+    assert (np.array(np.where(me_s.t_features['beh'] > 100)) == sig_location).all()
+    assert ((me_s.t_features['beh2'] >100)==0).all()
