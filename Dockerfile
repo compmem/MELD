@@ -16,8 +16,7 @@ RUN /usr/local/bin/ipython -c "import meld" && mkdir -p /meld_root/work/data /me
 
 RUN chmod -R 777 /meld && chmod -R 777 /meld_root 
 
-ENV JOBLIB_START_METHOD='forkserver' \
-    LANG=C.UTF-8 \
+ENV LANG=C.UTF-8 \
     LC_ALL=C.UTF-8
 
 ENV PATH=$PATH:/opt/workbench/bin_linux64
