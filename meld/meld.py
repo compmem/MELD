@@ -531,8 +531,11 @@ def _eval_model(model_id, perm=None, boot=None):
     O = None
     lmer = None
     if mm._mer is None or boot is not None:
-        O = [mm._O[i].copy() for i in ind_b]
-
+        O = []
+        for i, ib in enumerate(ind_b):
+            tempO = mm._O[ib].copy()
+            tempO[mm._re_group] = mm._groups[i]
+            O.append(tempO)
         lmer = LMER(mm._formula_str, np.concatenate(O),
                     factors=mm._factors,
                     resid_formula_str=mm._resid_formula_str, **mm._lmer_opts)
