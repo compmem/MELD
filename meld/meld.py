@@ -430,6 +430,7 @@ _global_meld = {}
 def _eval_model(model_id, perm=None, boot=None):
     # set vars from model
     mm = _global_meld[model_id]
+    ct = mm._component_thresh
     _R = mm._R
 
     # Calculate R
@@ -489,7 +490,8 @@ def _eval_model(model_id, perm=None, boot=None):
     Rtbr = pick_stable_features(Ztemp, nboot=mm._feat_nboot)
 
     # actually use the TFCE for SVD
-    R_nocat = Ztemp
+    if mm._tfce_svd:
+        R_nocat = Ztemp
 
     # apply the thresh
     stable_ind = Rtbr < mm._feat_thresh
@@ -522,11 +524,13 @@ def _eval_model(model_id, perm=None, boot=None):
         _ss = mm._ss
     # ss /= ss.sum()
     ss = s
+    ss_ratio = ss/_ss
+    
 
     # set up lmer
     O = None
     lmer = None
-    if mm._mer is None:
+    if mm._mer is None or boot is not None:
         O = [mm._O[i].copy() for i in ind_b]
 
         lmer = LMER(mm._formula_str, np.concatenate(O),
@@ -539,7 +543,7 @@ def _eval_model(model_id, perm=None, boot=None):
     # loop over LVs performing LMER
     res = []
     for i in range(len(Vh)):
-        if ss[i] <= 0.0:
+        if ss_ratio[i] <= ct:
             # print 'skipped ',str(i)
             continue
 
@@ -602,21 +606,20 @@ def _eval_model(model_id, perm=None, boot=None):
     tvals = np.concatenate(tvals)
     log_likes = np.concatenate(log_likes)
 
+    ss_norm = ss_ratio[ss_ratio> ct]
     # recombine and scale the tvals across components
-    bs = np.rec.fromarrays([np.dot(betas[k],
-                                   ss[ss > 0.0] / _ss)  # /(ss>0.).sum()
+    bs = np.rec.fromarrays([np.dot(betas[k], ss_norm)  # /(ss>0.).sum()
                             for k in tvals.dtype.names],
                            names=','.join(tvals.dtype.names))
-    ts = np.rec.fromarrays([np.dot(tvals[k],
-                                   ss[ss > 0.0] / _ss)  # /(ss>0.).sum()
+    ts = np.rec.fromarrays([np.dot(tvals[k], ss_norm)  # /(ss>0.).sum()
                             for k in tvals.dtype.names],
                            names=','.join(tvals.dtype.names))
 
     # scale tvals across features
     bfs = []
     tfs = []
-    ss_diag = diagsvd(ss[ss > 0], len(ss[ss > 0]), len(ss[ss > 0]))
-    ssVh = blockwise_dot(ss_diag, Vh[ss > 0, ...])
+    ss_diag = diagsvd(ss_norm, len(ss_norm), len(ss_norm))
+    ssVh = blockwise_dot(ss_diag, Vh[ss_ratio > ct, ...])
     for k in tvals.dtype.names:
         # tfs.append(np.dot(tvals[k],
         #                   np.dot(diagsvd(ss[ss > 0],
@@ -631,10 +634,10 @@ def _eval_model(model_id, perm=None, boot=None):
     # decide what to return
     if perm is None and boot is None:
         # return tvals, tfs, and R for actual non-permuted data
-        out = (bs, ts, bfs, tfs, _R, feat_mask, _ss, mer)
+        out = (betas, tvals, bs, ts, bfs, tfs, _R, feat_mask, _ss, mer)
     else:
         # return the tvals for the terms
-        out = (bs, ts, bfs, tfs, ~feat_mask[0])
+        out = (betas, tvals, bs, ts, bfs, tfs, ~feat_mask[0])
 
     return out
 
@@ -660,6 +663,38 @@ def _memmap_array(x, memmap_dir=None, use_h5py=False, unique_id=''):
         mmap_dat = np.load(filename, 'r+')
     return mmap_dat
 
+def gen_bal_boots(nsubj, nboots):
+    """Generate indicies for balanced bootstraps as described 
+       in https://onlinelibrary.wiley.com/doi/pdf/10.1002/9780470057339.vab028 
+       page 4"""
+    return np.random.choice(np.array([[ii for ii in range(nsubj)]]*(nboots)).flatten(), ((nboots), nsubj), replace=False)
+
+def gen_jackknives(x, nj):
+    """Given an array, return pseudo jackknifed samples of that array.
+    Exact jackknife in the instance that nj == len(x), error if nj > len(x), 
+    and leave more than one out if nj < len(x)"""
+    a = len(x)
+    # If nj is greater than or equal to a we'll do leave one out jackknife
+    if nj == a:
+        lno = 1
+    elif nj > a:
+        raise ValueError("Can't have more jacknife resamplings than subjects")
+    else:
+        lno = a//nj + 1
+
+    a_inds = np.arange(a)
+    left_out_inds = np.vstack((np.random.choice(a, (a//lno,lno), replace = False),
+                               np.random.choice(a, (nj%(a//lno),lno), replace = False)))
+
+    jks = []
+    for loi in left_out_inds:
+        jk = []
+        for i in range(a):
+            if i not in loi:
+                jk.append(x[i])
+        jks.append(np.array(jk))
+
+    return jks
 
 class MELD(object):
     """Mixed Effects for Large Datasets (MELD)
@@ -680,8 +715,10 @@ class MELD(object):
                  use_ranks=False, use_norm=True,
                  memmap=False, memmap_dir=None,
                  resid_formula=None,
-                 svd_terms=None, feat_thresh=0.05,
+                 svd_terms=None, 
+                 feat_thresh=0.05, component_thresh=0.0,
                  feat_nboot=1000, do_tfce=False,
+                 tfce_svd=False,
                  connectivity=None, shape=None,
                  dt=.01, E=2/3., H=2.0,
                  n_jobs=1, verbose=10,
@@ -719,8 +756,10 @@ class MELD(object):
 
         # see the thresh for keeping a feature
         self._feat_thresh = feat_thresh
+        self._component_thresh = component_thresh
         self._feat_nboot = feat_nboot
         self._do_tfce = do_tfce
+        self._tfce_svd = tfce_svd
         self._connectivity = connectivity
         self._dt = dt
         self._E = E
@@ -901,6 +940,8 @@ class MELD(object):
         # prepare for the perms and boots and jackknife
         self._perms = []
         self._boots = []
+        self._bk = []
+        self._tk = []
         self._bp = []
         self._tp = []
         self._bb = []
@@ -921,8 +962,10 @@ class MELD(object):
         self._R = None
         self._ss = None
         self._mer = None
-        bp, tp, bb, tb, R, feat_mask, ss, mer = _eval_model(id(self), None)
+        bk, tk, bp, tp, bb, tb, R, feat_mask, ss, mer = _eval_model(id(self), None)
         self._R = R
+        self._bk.append(bk)
+        self._tk.append(tk)        
         self._bp.append(bp)
         self._tp.append(tp)
         self._bb.append(bb)
@@ -1007,7 +1050,9 @@ class MELD(object):
                        backend=backend,
                        verbose=verbose)(delayed(_eval_model)(id(self), perm)
                                         for perm in perms)
-        bp, tp, bfs, tfs, feat_mask = zip(*res)
+        bk, tk, bp, tp, bfs, tfs, feat_mask = zip(*res)
+        self._bk.extend(bk)
+        self._tk.extend(tk)        
         self._bp.extend(bp)
         self._tp.extend(tp)
         self._bb.extend(bfs)
@@ -1017,6 +1062,7 @@ class MELD(object):
         if verbose > 0:
             sys.stdout.write('Done (%.2g sec)\n' % (time.time()-start_time))
             sys.stdout.flush()
+
 
     def run_boots(self, boots, fvar_nboot=None, n_jobs=None, verbose=None, backend="multiprocessing"):
         """Run the specified bootstraps.
@@ -1033,13 +1079,13 @@ class MELD(object):
             if fvar_nboot < 0:
                 raise ValueError("fvar_nboot must be greater than 0")
             self._fvar_nboot =  fvar_nboot
-        elif self._fvar_nboot is not None and  fvar_nboot is not None:
+        elif self._fvar_nboot is not None and  fvar_nboot is not None and self._fvar_nboot !=  fvar_nboot:
             raise Exception("You've already set the number of bootsrtaps to use for"
-                            "estimating feature vaiance. You can't change it now."
+                            "estimating feature vaiance to %d. You can't change it now."
                             "I haven't actually made the attribute read only,"
                             "but if you set it to another value, your ts and ps"
-                            "will no longer be accurate.")
-        else:
+                            "will no longer be accurate."%self._fvar_nboot)
+        elif self._fvar_nboot is None and fvar_nboot is None:
             self._fvar_nboot = 1
 
 
@@ -1052,22 +1098,25 @@ class MELD(object):
             # boots is nboots
             nboots = boots
             boots = []
-            for n in range(self._fvar_nboot-1):
-                boots.append(np.random.choice(range(len(self._groups)), len(self._groups)))
-            for _i in range(nboots):
-                tmp_boot = np.random.choice(range(len(self._groups)), len(self._groups))
-                boots.append(tmp_boot)
-                for n in range(self._fvar_nboot-1):
-                    boots.append(np.random.choice(tmp_boot, len(self._groups)))
+            # add jackknife resamplings for original data
+            if not self._boots:
+                boots.extend(gen_jackknives(np.arange(len(self._groups)),self._fvar_nboot))
+
+            bal_boots = gen_bal_boots(len(self._groups),nboots)
+            
+            for boot in bal_boots:
+                boots.append(boot)
+                boots.extend(gen_jackknives(boot,self._fvar_nboot))
+
         else:
             # calc nboots
             nboots = len(boots)
-            if nboots % self._fvar_nboot != 0:
+            if nboots % (self._fvar_nboot+1) != 0:
                 raise ValueError("The list of boostrapts provided is not"
                                  "evenly divisible by fvar_nboot.")
 
         if verbose > 0:
-            sys.stdout.write('Running %d bootstraps x %d variance estimation bootstraps = %d total bootstraps...\n' % (nboots,self._fvar_nboot, ((nboots+1)*self._fvar_nboot)-1))
+            sys.stdout.write('Running %d bootstraps'%len(boots))
             sys.stdout.flush()
             start_time = time.time()
 
@@ -1079,7 +1128,9 @@ class MELD(object):
                        backend=backend,
                        verbose=verbose)(delayed(_eval_model)(id(self), boot=boot)
                                         for boot in boots)
-        bp, tp, bfs, tfs, feat_mask = zip(*res)
+        bk, tk, bp, tp, bfs, tfs, feat_mask = zip(*res)
+        self._bk.append(bk)
+        self._tk.append(tk)
         self._bp.extend(bp)
         self._tp.extend(tp)
         self._bb.extend(bfs)
@@ -1114,20 +1165,21 @@ class MELD(object):
                 tfeats.append(tfeat)
         else:
             bpf = self._bb[0].__array_wrap__(np.hstack(self._bb))
-            nperms = (len(self._boots)+1)//self._fvar_nboot
+            nperms = (len(self._boots)+1)//(self._fvar_nboot+1)
             pfmasks = np.array(self._pfmask).transpose((1, 0, 2))
             for i, n in enumerate(names):
                 fmask = pfmasks[i]
                 bf = bpf[n]
                 bf = bf.reshape(fmask.shape[0], -1)
                 bf[~fmask] = 0
-                bf = bf.reshape(nperms,self._fvar_nboot, -1)
+                bf = bf.reshape(nperms,self._fvar_nboot+1, -1)
 
                 # Nested bootstrap gives us mean and standard error
-                boot_mean = np.mean(bf, 1)
-                boot_std = bf.std(1)
+                boot_mean = bf[:,0,:]
+                boot_sterr = ((bf.shape[1]-1)/bf.shape[1])*np.sqrt(np.sum(((bf[:,0,:].reshape(bf.shape[0], 1, bf.shape[-1]) - bf[:,1:,:])**2), 1))
+
                 tf = np.zeros_like(boot_mean[0])
-                tf[boot_mean[0] != 0] = ((boot_mean[0])[boot_mean[0] != 0])/boot_std[0][boot_mean[0] != 0]
+                tf[boot_sterr[0] != 0] = np.abs(((boot_mean[0])[boot_sterr[0] != 0])/boot_sterr[0][boot_sterr[0] != 0])
                 tfeat = np.zeros(self._feat_shape)
                 tfeat[self._dep_mask] = tf
                 tfeats.append(tfeat)
@@ -1137,20 +1189,20 @@ class MELD(object):
     def p_features(self):
         return self.get_p_features()
 
-    def get_p_features(self, names=None, conj=None):
+    def get_p_features(self, names=None, conj=None, do_tfce=True):
         tpf = self._tb[0].__array_wrap__(np.hstack(self._tb))
         pfmasks = np.array(self._pfmask).transpose((1, 0, 2))
         if self._perms:
             nperms = np.int(len(self._perms)+1)
         elif self._boots:
             bpf = self._bb[0].__array_wrap__(np.hstack(self._bb))
-            nperms = (len(self._boots)+1)//self._fvar_nboot
+            nperms = (len(self._boots)+1)//(self._fvar_nboot+1)
 
 
         else:
             raise Exception("Must run some boots or perms before getting ps")
 
-        pfs = []
+        tfs = []
         if names is None:
             if conj is not None:
                 # use the conj if it's not none
@@ -1158,77 +1210,107 @@ class MELD(object):
             else:
                 names = [n for n in tpf.dtype.names
                          if n != '(Intercept)']
-        # convert all of the ts to ps
-        for i, n in enumerate(names):
-            fmask = pfmasks[i]
-            # make null T dist within term
-            if self._perms:
+        if self._perms:
+            pfs = []
+
+            for i, n in enumerate(names):
+                fmask = pfmasks[i]
                 tf = tpf[n]
                 tf = np.abs(tf.reshape(int(nperms), -1))
                 fmask = pfmasks[i]
                 tf[~fmask] = 0
                 nullTdist = tf.max(1)
                 nullTdist.sort()
-            elif self._boots:
+                pf = ((nperms-np.searchsorted(nullTdist, tf.flatten(), 'left')) /
+                      nperms).reshape(nperms, -1)
+                pfs.append(pf)
+
+            # pfs is terms by perms by features
+            pfs = np.array(pfs)
+
+            # handle conjunction
+            if conj is not None:
+                # get max p-vals across terms for each perm and feature
+                pfs = pfs.max(0)[np.newaxis]
+
+                # set the names to be new conj
+                names = ['&'.join(names)]
+           
+            # make null p distribution
+            nullPdist = pfs.min(2).min(0)
+            nullPdist.sort()
+
+            # get pvalues for each feature for each term
+            pfts = np.searchsorted(nullPdist,
+                                   pfs[:, 0, :].flatten(),
+                                   'right').reshape(len(pfs), -1)/nperms
+
+            pfeats = []
+            for n in range(len(names)):
+                pfeat = np.ones(self._feat_shape)
+                pfeat[self._dep_mask] = pfts[n]
+                pfeats.append(pfeat)
+
+            # reconstruct the recarray
+            pfts = np.rec.fromarrays(pfeats, names=','.join(names))
+
+            return pfts
+
+        elif self._boots:
+            for i, n in enumerate(names):
+                fmask = pfmasks[i]
                 bf = bpf[n]
                 bf = bf.reshape(fmask.shape[0], -1)
                 bf[~fmask] = 0
-                bf = bf.reshape(nperms,self._fvar_nboot, -1)
+                bf = bf.reshape(nperms,self._fvar_nboot+1, -1)
 
-                # Nested bootstrap gives us mean and standard error
+                # Nested bootstrap and jackknife gives us mean and standard error
                 # bootstrap hypothesis test is based on:
                 # http://www.jstor.org/stable/2532163?seq=3#page_scan_tab_contents
-                # With the addition of heteroskedastic test
-                # using the following as the standard error:
-                # :<math>s_{\bar\Delta} = \sqrt{\frac{s_1^2}{n_1} + \frac{s_2^2}{n_2}}.</math>
-                boot_mean = np.mean(bf, 1)
-                boot_std = bf.std(1)
+                boot_mean = bf[:,0,:]
+                # Jackknife standar error from http://people.bu.edu/aimcinto/jackknife.pdf
+                boot_sterr = ((bf.shape[1]-1)/bf.shape[1])*np.sqrt(np.sum(((bf[:,0,:].reshape(bf.shape[0], 1, bf.shape[-1]) - bf[:,1:,:])**2), 1))
                 # calculate bootstrap hypothesis test stat taking into account
                 # guidelines from http://www.jstor.org/stable/2532163?seq=2#page_scan_tab_contents
                 tf = np.zeros_like(boot_mean)
-                tf[0][boot_mean[0] != 0] = np.abs(((boot_mean[0])[boot_mean[0] != 0])/boot_std[0][boot_mean[0] != 0])
-                sdelta = np.sqrt((boot_std[0]**2 + boot_std[1:]**2))
-                tf[1:][boot_mean[1:] != 0] = np.abs(((boot_mean[1:] - boot_mean[0])[boot_mean[1:] != 0])/sdelta[boot_mean[1:] != 0])
-                nullTdist = tf.max(1)
-                nullTdist.sort()
-            # use searchsorted to get indicies for turning ts into ps,
-            # then divide by number of perms
-            # got this from:
-            # http://stackoverflow.com/questions/18875970/comparing-two-numpy-arrays-of-different-length
-            pf = ((nperms-np.searchsorted(nullTdist, tf.flatten(), 'left')) /
-                  nperms).reshape(nperms, -1)
-            pfs.append(pf)
+                tf[0][boot_sterr[0] != 0] = np.abs(((boot_mean[0])[boot_sterr[0] != 0])/boot_sterr[0][boot_sterr[0] != 0])
+                #sdelta = np.sqrt((boot_std[0]**2 + boot_std[1:]**2))
+                sdelta = boot_sterr[1:]
+                tf[1:][boot_sterr[1:] != 0] = np.abs(((boot_mean[1:] - boot_mean[0])[boot_sterr[1:] != 0])/sdelta[boot_sterr[1:] != 0])
+                tfeats = np.zeros((nperms, np.product(self._feat_shape)))
+                tfeats[:,self._dep_mask.flatten()] = tf
+                tfs.append(tfeats)
 
-        # pfs is terms by perms by features
-        pfs = np.array(pfs)
+            # tfs is terms by boots by features
+            tfs = np.array(tfs)
 
-        # handle conjunction
-        if conj is not None:
-            # get max p-vals across terms for each perm and feature
-            pfs = pfs.max(0)[np.newaxis]
+            # handle conjunction
+            if conj is not None:
+                # get max p-vals across terms for each perm and feature
+                tfs = tfs.min(0)[np.newaxis]
 
-            # set the names to be new conj
-            names = ['&'.join(names)]
-       
-        # make null p distribution
-        nullPdist = pfs.min(2).min(0)
-        nullPdist.sort()
+                # set the names to be new conj
+                names = ['&'.join(names)]
 
-        # get pvalues for each feature for each term
-        pfts = np.searchsorted(nullPdist,
-                               pfs[:, 0, :].flatten(),
-                               'right').reshape(len(pfs), -1)/nperms
+            if do_tfce == True:
+                tfces = np.array([[tfce.tfce(tfs[i,j].reshape(self._feat_shape),
+                                             param_e=self._E,
+                                             param_h=self._H,
+                                             pad=True) 
+                                   for j in range(tfs.shape[1])] 
+                                   for i in range(tfs.shape[0])]).reshape(tfs.shape)
+                tfs = tfces
 
-        pfeats = []
-        for n in range(len(names)):
-            pfeat = np.ones(self._feat_shape)
-            pfeat[self._dep_mask] = pfts[n]
-            pfeats.append(pfeat)
+            nullTdist = tfs.max(0).max(-1)
+            nullTdist.sort()
+            # get pvalues for each feature for each term
+            pfts = (nperms-np.searchsorted(nullTdist,
+                           tfs[:, 0, :].flatten(),
+                           'left').reshape(tfs.shape[0], *self._feat_shape))/nperms
 
-        # reconstruct the recarray
-        pfts = np.rec.fromarrays(pfeats, names=','.join(names))
+            pfts = np.rec.fromarrays(pfts, names=','.join(names))
 
-        return pfts
+            return pfts
 
 
 if __name__ == '__main__':

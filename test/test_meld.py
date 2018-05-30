@@ -87,8 +87,8 @@ def test_meld():
                                              for n in pfts.dtype.names])
 
     # This is just the most basic of idiot tests
-    assert (np.array(np.where(me_s.t_features['beh'] > 1000000)) == sig_location).all()
-    assert ((me_s.t_features['beh2'] >100000)==0).all()
+    assert (np.array(np.where(me_s.t_features['beh'] > 7500)) == sig_location).all()
+    assert ((me_s.t_features['beh2'] >7500)==0).all()
 
     print('Data shape:', dep_data.shape)
     print("Starting MELD bootstrap test")
@@ -97,7 +97,7 @@ def test_meld():
                 dep_data_s, ind_data, factors={'subj': None},
                 use_ranks=use_ranks,
                 dep_mask=dep_mask,
-                feat_nboot=1000, feat_thresh=0.05,
+                feat_nboot=1000, feat_thresh=0.05,component_thresh=0.2,
                 do_tfce=True,
                 connectivity=None, shape=None,
                 dt=.01, E=2/3., H=2.0,
@@ -114,5 +114,5 @@ def test_meld():
                                              for n in pfts.dtype.names])
 
     # This is just the most basic of idiot tests
-    assert (np.array(np.where(me_s.t_features['beh'] > 100)) == sig_location).all()
-    assert ((me_s.t_features['beh2'] >100)==0).all()
+    assert (np.array(np.where(me_s.t_features['beh'] > 6)) == sig_location).all()
+    assert ((me_s.t_features['beh2'] >6)==0).all()
