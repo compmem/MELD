@@ -87,8 +87,8 @@ def test_meld():
                                              for n in pfts.dtype.names])
 
     # This is just the most basic of idiot tests
-    assert (np.array(np.where(me_s.t_features['beh'] > 7500)) == sig_location).all()
-    assert ((me_s.t_features['beh2'] >7500)==0).all()
+    assert (np.array(np.where(me_s.t_features['beh'] > 90000)) == sig_location).all()
+    assert ((me_s.t_features['beh2'] >90000)==0).all()
 
     print('Data shape:', dep_data.shape)
     print("Starting MELD bootstrap test")

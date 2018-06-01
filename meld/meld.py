@@ -474,7 +474,8 @@ def _eval_model(model_id, perm=None, boot=None):
     # make sure we are not 1/-1
     R_nocat[R_nocat > .9999] = .9999
     R_nocat[R_nocat < -.9999] = -.9999
-    R_nocat = np.arctanh(R_nocat)
+    if mm._z_transform:
+        R_nocat = np.arctanh(R_nocat)
 
     if mm._do_tfce:
         # run TFCE
@@ -496,7 +497,6 @@ def _eval_model(model_id, perm=None, boot=None):
     # apply the thresh
     stable_ind = Rtbr < mm._feat_thresh
     stable_ind = stable_ind.reshape((stable_ind.shape[0], -1))
-
     # zero out non-stable
     feat_mask[:, ~stable_ind] = True
     R_nocat[:, ~stable_ind] = 0.0
@@ -511,22 +511,32 @@ def _eval_model(model_id, perm=None, boot=None):
 
     # perform svd
     U, s, Vh = np.linalg.svd(R, full_matrices=False)
-
+    #if boot is not None:
+    #    import pdb; pdb.set_trace()
     # fix near zero vals from SVD
     Vh[np.abs(Vh) < (.00000001 * mm._dt)] = 0.0
     s[np.abs(s) < .00000001] = 0.0
+    # calc percent variance explained
+    pve = s**2/(s**2).sum()
 
+    # filtering by percent variance explained 
+    # drops the number of components too low, especially on bootstraps
+    #s[pve < 0.0000001] = 0.0
     # calc prop of variance accounted for
     if mm._ss is None:
         # _ss = np.sqrt((s*s).sum())
         _ss = s.sum()
     else:
         _ss = mm._ss
-    # ss /= ss.sum()
     ss = s
-    ss_ratio = ss/_ss
-    
 
+    # If it's a permutation, we'll normalize by the orig ss
+    # otherwise, normalize by sum of ss
+    if perm is not None:
+        ss_ratio = ss/_ss
+    else:
+        ss_ratio = ss/ss.sum()
+    
     # set up lmer
     O = None
     lmer = None
@@ -546,7 +556,7 @@ def _eval_model(model_id, perm=None, boot=None):
     # loop over LVs performing LMER
     res = []
     for i in range(len(Vh)):
-        if ss_ratio[i] <= ct:
+        if pve[i] <= ct:
             # print 'skipped ',str(i)
             continue
 
@@ -609,7 +619,7 @@ def _eval_model(model_id, perm=None, boot=None):
     tvals = np.concatenate(tvals)
     log_likes = np.concatenate(log_likes)
 
-    ss_norm = ss_ratio[ss_ratio> ct]
+    ss_norm = ss_ratio[pve > ct]
     # recombine and scale the tvals across components
     bs = np.rec.fromarrays([np.dot(betas[k], ss_norm)  # /(ss>0.).sum()
                             for k in tvals.dtype.names],
@@ -621,8 +631,9 @@ def _eval_model(model_id, perm=None, boot=None):
     # scale tvals across features
     bfs = []
     tfs = []
-    ss_diag = diagsvd(ss_norm, len(ss_norm), len(ss_norm))
-    ssVh = blockwise_dot(ss_diag, Vh[ss_ratio > ct, ...])
+    ss_filt = ss[pve>ct]
+    ss_diag = diagsvd(ss_filt, len(ss_filt), len(ss_filt))
+    ssVh = blockwise_dot(ss_diag, Vh[pve > ct, ...])
     for k in tvals.dtype.names:
         # tfs.append(np.dot(tvals[k],
         #                   np.dot(diagsvd(ss[ss > 0],
@@ -637,10 +648,10 @@ def _eval_model(model_id, perm=None, boot=None):
     # decide what to return
     if perm is None and boot is None:
         # return tvals, tfs, and R for actual non-permuted data
-        out = (betas, tvals, bs, ts, bfs, tfs, _R, feat_mask, _ss, mer)
+        out = (bs, ts, bfs, tfs, _R, feat_mask, _ss, mer)
     else:
         # return the tvals for the terms
-        out = (betas, tvals, bs, ts, bfs, tfs, ~feat_mask[0])
+        out = (bs, ts, bfs, tfs, ~feat_mask[0])
 
     return out
 
@@ -677,7 +688,7 @@ def gen_jackknives(x, nj):
     Exact jackknife in the instance that nj == len(x), error if nj > len(x), 
     and leave more than one out if nj < len(x)"""
     a = len(x)
-    # If nj is greater than or equal to a we'll do leave one out jackknife
+    # If nj is equal to a we'll do leave one out jackknife
     if nj == a:
         lno = 1
     elif nj > a:
@@ -721,7 +732,7 @@ class MELD(object):
                  svd_terms=None, 
                  feat_thresh=0.05, component_thresh=0.0,
                  feat_nboot=1000, do_tfce=False,
-                 tfce_svd=False,
+                 tfce_svd=False, z_transform=True,
                  connectivity=None, shape=None,
                  dt=.01, E=2/3., H=2.0,
                  n_jobs=1, verbose=10,
@@ -762,6 +773,7 @@ class MELD(object):
         self._component_thresh = component_thresh
         self._feat_nboot = feat_nboot
         self._do_tfce = do_tfce
+        self._z_transform = z_transform
         self._tfce_svd = tfce_svd
         self._connectivity = connectivity
         self._dt = dt
@@ -943,8 +955,6 @@ class MELD(object):
         # prepare for the perms and boots and jackknife
         self._perms = []
         self._boots = []
-        self._bk = []
-        self._tk = []
         self._bp = []
         self._tp = []
         self._bb = []
@@ -965,10 +975,8 @@ class MELD(object):
         self._R = None
         self._ss = None
         self._mer = None
-        bk, tk, bp, tp, bb, tb, R, feat_mask, ss, mer = _eval_model(id(self), None)
-        self._R = R
-        self._bk.append(bk)
-        self._tk.append(tk)        
+        bp, tp, bb, tb, R, feat_mask, ss, mer = _eval_model(id(self), None)
+        self._R = R       
         self._bp.append(bp)
         self._tp.append(tp)
         self._bb.append(bb)
@@ -1053,9 +1061,7 @@ class MELD(object):
                        backend=backend,
                        verbose=verbose)(delayed(_eval_model)(id(self), perm)
                                         for perm in perms)
-        bk, tk, bp, tp, bfs, tfs, feat_mask = zip(*res)
-        self._bk.extend(bk)
-        self._tk.extend(tk)        
+        bp, tp, bfs, tfs, feat_mask = zip(*res)       
         self._bp.extend(bp)
         self._tp.extend(tp)
         self._bb.extend(bfs)
@@ -1103,18 +1109,26 @@ class MELD(object):
             boots = []
             # add jackknife resamplings for original data
             if not self._boots:
-                boots.extend(gen_jackknives(np.arange(len(self._groups)),self._fvar_nboot))
+                if self._fvar_nboot > len(self._groups):
+                    boots.extend(gen_bal_boots(len(self._groups),self._fvar_nboot))
+                else:
+                    boots.extend(gen_jackknives(np.arange(len(self._groups)),self._fvar_nboot))
 
             bal_boots = gen_bal_boots(len(self._groups),nboots)
             
             for boot in bal_boots:
                 boots.append(boot)
-                boots.extend(gen_jackknives(boot,self._fvar_nboot))
+                # Bootstrap if more inner than samples
+                # otherwise jackknife
+                if self._fvar_nboot > len(boot):
+                    boots.extend(boot[gen_bal_boots(len(boot),self._fvar_nboot)])
+                else:
+                    boots.extend(gen_jackknives(boot,self._fvar_nboot))
 
         else:
             # calc nboots
             nboots = len(boots)
-            if nboots % (self._fvar_nboot+1) != 0:
+            if (nboots+1) % (self._fvar_nboot+1) != 0:
                 raise ValueError("The list of boostrapts provided is not"
                                  "evenly divisible by fvar_nboot.")
 
@@ -1131,9 +1145,7 @@ class MELD(object):
                        backend=backend,
                        verbose=verbose)(delayed(_eval_model)(id(self), boot=boot)
                                         for boot in boots)
-        bk, tk, bp, tp, bfs, tfs, feat_mask = zip(*res)
-        self._bk.append(bk)
-        self._tk.append(tk)
+        bp, tp, bfs, tfs, feat_mask = zip(*res)
         self._bp.extend(bp)
         self._tp.extend(tp)
         self._bb.extend(bfs)
@@ -1267,12 +1279,18 @@ class MELD(object):
                 bf[~fmask] = 0
                 bf = bf.reshape(nperms,self._fvar_nboot+1, -1)
 
-                # Nested bootstrap and jackknife gives us mean and standard error
-                # bootstrap hypothesis test is based on:
-                # http://www.jstor.org/stable/2532163?seq=3#page_scan_tab_contents
-                boot_mean = bf[:,0,:]
-                # Jackknife standar error from http://people.bu.edu/aimcinto/jackknife.pdf
-                boot_sterr = ((bf.shape[1]-1)/bf.shape[1])*np.sqrt(np.sum(((bf[:,0,:].reshape(bf.shape[0], 1, bf.shape[-1]) - bf[:,1:,:])**2), 1))
+                # If the we've got more inner boots than people, do a bootstrap
+                # That means we've got a different formula for standard error and mean
+                if self._fvar_nboot > len(self._groups):
+                    boot_mean = bf.mean(1)
+                    boot_sterr = (1/self._fvar_nboot) * np.sqrt(np.sum(((boot_mean.reshape(bf.shape[0], 1, bf.shape[-1]) - bf[:,0:,:])**2), 1))
+                else:
+                    # Nested bootstrap and jackknife gives us mean and standard error
+                    # bootstrap hypothesis test is based on:
+                    # http://www.jstor.org/stable/2532163?seq=3#page_scan_tab_contents
+                    boot_mean = bf[:,0,:]
+                    # Jackknife standard error from http://people.bu.edu/aimcinto/jackknife.pdf
+                    boot_sterr = ((bf.shape[1]-1)/bf.shape[1])*np.sqrt(np.sum(((bf[:,0,:].reshape(bf.shape[0], 1, bf.shape[-1]) - bf[:,1:,:])**2), 1))
                 # calculate bootstrap hypothesis test stat taking into account
                 # guidelines from http://www.jstor.org/stable/2532163?seq=2#page_scan_tab_contents
                 tf = np.zeros_like(boot_mean)
