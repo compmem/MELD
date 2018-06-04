@@ -229,6 +229,7 @@ class LMER():
             #perms = [np.arange(len(self._rdf[self._col_ind]))]
 
         # run on each permutation
+        resds = None
         betas = None
         tvals = None
         log_likes = None
@@ -275,8 +276,8 @@ class LMER():
             betas[i] = tuple(df.rx2('Estimate'))
             tvals[i] = tuple(df.rx2('t.value'))
             log_likes[i] = float(r['logLik'](ms)[0])
-
-        return betas, tvals, log_likes
+        resds = r['resid'](ms)
+        return resds, betas, tvals, log_likes
 
 
 
@@ -584,7 +585,9 @@ def _eval_model(model_id, perm=None, boot=None):
                                           names=','.join(rows))
 
             new_ll = float(r['logLik'](mer)[0])
-            res.append((new_betas, new_tvals, np.array([new_ll])))
+            #new_resds = r['resid'](mer)
+            new_resds = np.zeros(Dw.shape[0])
+            res.append((new_resds, new_betas, new_tvals, np.array([new_ll])))
 
     if len(res) == 0:
         # must make dummy data
@@ -601,20 +604,22 @@ def _eval_model(model_id, perm=None, boot=None):
                         **mm._lmer_opts)
 
         Dw = np.random.randn(len(np.concatenate(O)))
-        temp_b, temp_t, temp_ll = lmer.run(vals=Dw)
+        temp_resds, temp_b, temp_t, temp_ll = lmer.run(vals=Dw)
 
         for n in temp_t.dtype.names:
             temp_b[n] = 0.0
             temp_t[n] = 0.0
         temp_ll[0] = 0.0
-        res.append((temp_b, temp_t, temp_ll))
+        temp_resds = np.zeros(Dw.shape[0])
+        res.append((temp_resds, temp_b, temp_t, temp_ll))
 
         # must make ss, too
         ss = np.array([1.0])
         # print "perm fail"
 
     # pull out data from all the components
-    betas, tvals, log_likes = zip(*res)
+    resds, betas, tvals, log_likes = zip(*res)
+    resds = np.vstack(resds)
     betas = np.concatenate(betas)
     tvals = np.concatenate(tvals)
     log_likes = np.concatenate(log_likes)
@@ -629,8 +634,10 @@ def _eval_model(model_id, perm=None, boot=None):
                            names=','.join(tvals.dtype.names))
 
     # scale tvals across features
+    # rfs = np.zeros()
     bfs = []
     tfs = []
+    rfs = np.zeros((resds.T.shape[0], Vh.shape[1]))
     ss_filt = ss[pve>ct]
     ss_diag = diagsvd(ss_filt, len(ss_filt), len(ss_filt))
     ssVh = blockwise_dot(ss_diag, Vh[pve > ct, ...])
@@ -644,15 +651,16 @@ def _eval_model(model_id, perm=None, boot=None):
         tfs.append(blockwise_dot(tvals[k], ssVh))
     bfs = np.rec.fromarrays(bfs, names=','.join(tvals.dtype.names))
     tfs = np.rec.fromarrays(tfs, names=','.join(tvals.dtype.names))
-
+    # Transform residuals back to feature space
+    #rfs = resds.T @ ssVh
+    rfs = resds.T @ssVh
     # decide what to return
     if perm is None and boot is None:
         # return tvals, tfs, and R for actual non-permuted data
-        out = (bs, ts, bfs, tfs, _R, feat_mask, _ss, mer)
+        out = (bs, ts, rfs, bfs, tfs, _R, feat_mask, _ss, mer)
     else:
         # return the tvals for the terms
-        out = (bs, ts, bfs, tfs, ~feat_mask[0])
-
+        out = (bs, ts, rfs, bfs, tfs, ~feat_mask[0])
     return out
 
 
@@ -957,6 +965,7 @@ class MELD(object):
         self._boots = []
         self._bp = []
         self._tp = []
+        self._rb = []
         self._bb = []
         self._tb = []
         self._tj = []
@@ -975,10 +984,11 @@ class MELD(object):
         self._R = None
         self._ss = None
         self._mer = None
-        bp, tp, bb, tb, R, feat_mask, ss, mer = _eval_model(id(self), None)
-        self._R = R       
+        bp, tp, rb, bb, tb, R, feat_mask, ss, mer = _eval_model(id(self), None)
+        self._R = R
         self._bp.append(bp)
         self._tp.append(tp)
+        self._rb.append(rb)
         self._bb.append(bb)
         self._tb.append(tb)
         self._feat_mask = feat_mask
@@ -1061,9 +1071,10 @@ class MELD(object):
                        backend=backend,
                        verbose=verbose)(delayed(_eval_model)(id(self), perm)
                                         for perm in perms)
-        bp, tp, bfs, tfs, feat_mask = zip(*res)       
+        bp, tp, rfs, bfs, tfs, feat_mask = zip(*res)       
         self._bp.extend(bp)
         self._tp.extend(tp)
+        self._rb.extend(rfs)
         self._bb.extend(bfs)
         self._tb.extend(tfs)
         self._pfmask.extend(feat_mask)
@@ -1145,9 +1156,10 @@ class MELD(object):
                        backend=backend,
                        verbose=verbose)(delayed(_eval_model)(id(self), boot=boot)
                                         for boot in boots)
-        bp, tp, bfs, tfs, feat_mask = zip(*res)
+        bp, tp, rfs, bfs, tfs, feat_mask = zip(*res)
         self._bp.extend(bp)
         self._tp.extend(tp)
+        self._rb.extend(rfs)
         self._bb.extend(bfs)
         self._tb.extend(tfs)
         self._pfmask.extend(feat_mask)
