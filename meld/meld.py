@@ -653,7 +653,7 @@ def _eval_model(model_id, perm=None, boot=None):
     tfs = np.rec.fromarrays(tfs, names=','.join(tvals.dtype.names))
     # Transform residuals back to feature space
     #rfs = resds.T @ ssVh
-    rfs = resds.T @ssVh
+    rfs = resds.T @ ssVh
     # decide what to return
     if perm is None and boot is None:
         # return tvals, tfs, and R for actual non-permuted data
@@ -1122,6 +1122,8 @@ class MELD(object):
             if not self._boots:
                 if self._fvar_nboot > len(self._groups):
                     boots.extend(gen_bal_boots(len(self._groups),self._fvar_nboot))
+                elif self._fvar_nboot == 0:
+                    pass
                 else:
                     boots.extend(gen_jackknives(np.arange(len(self._groups)),self._fvar_nboot))
 
@@ -1133,6 +1135,8 @@ class MELD(object):
                 # otherwise jackknife
                 if self._fvar_nboot > len(boot):
                     boots.extend(boot[gen_bal_boots(len(boot),self._fvar_nboot)])
+                elif self._fvar_nboot == 0:
+                    pass
                 else:
                     boots.extend(gen_jackknives(boot,self._fvar_nboot))
 
@@ -1191,25 +1195,53 @@ class MELD(object):
                 tfeat[self._dep_mask] = self._tb[0][n][0]
                 tfeats.append(tfeat)
         else:
+            
             bpf = self._bb[0].__array_wrap__(np.hstack(self._bb))
             nperms = (len(self._boots)+1)//(self._fvar_nboot+1)
             pfmasks = np.array(self._pfmask).transpose((1, 0, 2))
-            for i, n in enumerate(names):
-                fmask = pfmasks[i]
-                bf = bpf[n]
-                bf = bf.reshape(fmask.shape[0], -1)
-                bf[~fmask] = 0
-                bf = bf.reshape(nperms,self._fvar_nboot+1, -1)
+            if self._fvar_nboot > 0:
+                for i, n in enumerate(names):
+                    fmask = pfmasks[i]
+                    bf = bpf[n]
+                    bf = bf.reshape(fmask.shape[0], -1)
+                    bf[~fmask] = 0
+                    bf = bf.reshape(nperms,self._fvar_nboot+1, -1)
 
-                # Nested bootstrap gives us mean and standard error
-                boot_mean = bf[:,0,:]
-                boot_sterr = ((bf.shape[1]-1)/bf.shape[1])*np.sqrt(np.sum(((bf[:,0,:].reshape(bf.shape[0], 1, bf.shape[-1]) - bf[:,1:,:])**2), 1))
+                    # Nested bootstrap gives us mean and standard error
+                    boot_mean = bf[:,0,:]
+                    boot_sterr = ((bf.shape[1]-1)/bf.shape[1])*np.sqrt(np.sum(((bf[:,0,:].reshape(bf.shape[0], 1, bf.shape[-1]) - bf[:,1:,:])**2), 1))
 
-                tf = np.zeros_like(boot_mean[0])
-                tf[boot_sterr[0] != 0] = np.abs(((boot_mean[0])[boot_sterr[0] != 0])/boot_sterr[0][boot_sterr[0] != 0])
-                tfeat = np.zeros(self._feat_shape)
-                tfeat[self._dep_mask] = tf
-                tfeats.append(tfeat)
+                    tf = np.zeros_like(boot_mean[0])
+                    tf[boot_sterr[0] != 0] = np.abs(((boot_mean[0])[boot_sterr[0] != 0])/boot_sterr[0][boot_sterr[0] != 0])
+                    tfeat = np.zeros(self._feat_shape)
+                    tfeat[self._dep_mask] = tf
+                    tfeats.append(tfeat)
+            elif  self._fvar_nboot == 0:
+                c = np.identity(len(names))
+                O = np.concatenate(self._O)
+                
+                rsds_all = np.array(self._rb)
+                for i, n in enumerate(names):
+                    fmask = pfmasks[i]
+                    # calculate m
+                    m = O[n].astype([(n,np.float64)]).view(dtype=np.float64, type=np.ndarray)
+                    m_term = m.T @ m
+                    # calculate residual
+                    rsds= np.sqrt((np.array([rsds_all[j,:,k].T @ rsds_all[j,:,k] for j in range(rsds_all.shape[0]) for k in range(rsds_all.shape[2])]))/(rsds_all.shape[1] - np.linalg.matrix_rank(m)))
+                    rsds = rsds.reshape(nperms, -1)
+
+                    bf = bpf[n]
+                    bf = bf.reshape(fmask.shape[0], -1)
+                    bf[~fmask] = 0
+                    bf = bf.reshape(nperms, -1)
+                    
+                    boot_mean = bf
+                    boot_sterr = m_term*(rsds/(len(m)-np.linalg.matrix_rank(m)))
+                    tf = np.zeros_like(boot_mean[0])
+                    tf[boot_sterr[0] != 0] = np.abs(((boot_mean[0])[boot_sterr[0] != 0])/boot_sterr[0][boot_sterr[0] != 0])
+                    tfeat = np.zeros(self._feat_shape)
+                    tfeat[self._dep_mask] = tf
+                    tfeats.append(tfeat)
         return np.rec.fromarrays(tfeats, names=','.join(names))
 
     @property
@@ -1284,35 +1316,66 @@ class MELD(object):
             return pfts
 
         elif self._boots:
-            for i, n in enumerate(names):
-                fmask = pfmasks[i]
-                bf = bpf[n]
-                bf = bf.reshape(fmask.shape[0], -1)
-                bf[~fmask] = 0
-                bf = bf.reshape(nperms,self._fvar_nboot+1, -1)
+            if self._fvar_nboot > 0:
+                for i, n in enumerate(names):
+                    fmask = pfmasks[i]
+                    bf = bpf[n]
+                    bf = bf.reshape(fmask.shape[0], -1)
+                    bf[~fmask] = 0
+                    bf = bf.reshape(nperms,self._fvar_nboot+1, -1)
 
-                # If the we've got more inner boots than people, do a bootstrap
-                # That means we've got a different formula for standard error and mean
-                if self._fvar_nboot > len(self._groups):
-                    boot_mean = bf.mean(1)
-                    boot_sterr = (1/self._fvar_nboot) * np.sqrt(np.sum(((boot_mean.reshape(bf.shape[0], 1, bf.shape[-1]) - bf[:,0:,:])**2), 1))
-                else:
-                    # Nested bootstrap and jackknife gives us mean and standard error
-                    # bootstrap hypothesis test is based on:
-                    # http://www.jstor.org/stable/2532163?seq=3#page_scan_tab_contents
-                    boot_mean = bf[:,0,:]
-                    # Jackknife standard error from http://people.bu.edu/aimcinto/jackknife.pdf
-                    boot_sterr = ((bf.shape[1]-1)/bf.shape[1])*np.sqrt(np.sum(((bf[:,0,:].reshape(bf.shape[0], 1, bf.shape[-1]) - bf[:,1:,:])**2), 1))
-                # calculate bootstrap hypothesis test stat taking into account
-                # guidelines from http://www.jstor.org/stable/2532163?seq=2#page_scan_tab_contents
-                tf = np.zeros_like(boot_mean)
-                tf[0][boot_sterr[0] != 0] = np.abs(((boot_mean[0])[boot_sterr[0] != 0])/boot_sterr[0][boot_sterr[0] != 0])
-                #sdelta = np.sqrt((boot_std[0]**2 + boot_std[1:]**2))
-                sdelta = boot_sterr[1:]
-                tf[1:][boot_sterr[1:] != 0] = np.abs(((boot_mean[1:] - boot_mean[0])[boot_sterr[1:] != 0])/sdelta[boot_sterr[1:] != 0])
-                tfeats = np.zeros((nperms, np.product(self._feat_shape)))
-                tfeats[:,self._dep_mask.flatten()] = tf
-                tfs.append(tfeats)
+                    # If the we've got more inner boots than people, do a bootstrap
+                    # That means we've got a different formula for standard error and mean
+                    if self._fvar_nboot > len(self._groups):
+                        boot_mean = bf.mean(1)
+                        boot_sterr = (1/self._fvar_nboot) * np.sqrt(np.sum(((boot_mean.reshape(bf.shape[0], 1, bf.shape[-1]) - bf[:,0:,:])**2), 1))
+                    else:
+                        # Nested bootstrap and jackknife gives us mean and standard error
+                        # bootstrap hypothesis test is based on:
+                        # http://www.jstor.org/stable/2532163?seq=3#page_scan_tab_contents
+                        boot_mean = bf[:,0,:]
+                        # Jackknife standard error from http://people.bu.edu/aimcinto/jackknife.pdf
+                        boot_sterr = ((bf.shape[1]-1)/bf.shape[1])*np.sqrt(np.sum(((bf[:,0,:].reshape(bf.shape[0], 1, bf.shape[-1]) - bf[:,1:,:])**2), 1))
+                    # calculate bootstrap hypothesis test stat taking into account
+                    # guidelines from http://www.jstor.org/stable/2532163?seq=2#page_scan_tab_contents
+                    tf = np.zeros_like(boot_mean)
+                    tf[0][boot_sterr[0] != 0] = np.abs(((boot_mean[0])[boot_sterr[0] != 0])/boot_sterr[0][boot_sterr[0] != 0])
+                    #sdelta = np.sqrt((boot_std[0]**2 + boot_std[1:]**2))
+                    sdelta = boot_sterr[1:]
+                    tf[1:][boot_sterr[1:] != 0] = np.abs(((boot_mean[1:] - boot_mean[0])[boot_sterr[1:] != 0])/sdelta[boot_sterr[1:] != 0])
+                    tfeats = np.zeros((nperms, np.product(self._feat_shape)))
+                    tfeats[:,self._dep_mask.flatten()] = tf
+                    tfs.append(tfeats)
+            elif self._fvar_nboot == 0:
+                c = np.identity(len(names))
+                O = np.concatenate(self._O)
+                
+                rsds_all = np.array(self._rb)
+
+                for i, n in enumerate(names):
+                    fmask = pfmasks[i]
+                    # Calculate m for term
+                    m = O[n].astype([(n,np.float64)]).view(dtype=np.float64, type=np.ndarray)
+                    m_term = m.T @ m
+                    # calculate residual for term
+                    rsds= np.sqrt((np.array([rsds_all[j,:,k].T @ rsds_all[j,:,k] for j in range(rsds_all.shape[0]) for k in range(rsds_all.shape[2])]))/(rsds_all.shape[1] - np.linalg.matrix_rank(m)))
+                    rsds = rsds.reshape(nperms, -1)
+
+                    bf = bpf[n]
+                    bf = bf.reshape(fmask.shape[0], -1)
+                    bf[~fmask] = 0
+                    bf = bf.reshape(nperms, -1)
+                    
+                    boot_mean = bf
+                    boot_sterr = m_term*(rsds/(len(m)-np.linalg.matrix_rank(m)))
+                    tf = np.zeros_like(boot_mean)
+                    tf[0][boot_sterr[0] != 0] = np.abs(((boot_mean[0])[boot_sterr[0] != 0])/boot_sterr[0][boot_sterr[0] != 0])
+                    #sdelta = np.sqrt((boot_std[0]**2 + boot_std[1:]**2))
+                    sdelta = boot_sterr[1:]
+                    tf[1:][boot_sterr[1:] != 0] = np.abs(((boot_mean[1:] - boot_mean[0])[boot_sterr[1:] != 0])/sdelta[boot_sterr[1:] != 0])
+                    tfeats = np.zeros((nperms, np.product(self._feat_shape)))
+                    tfeats[:,self._dep_mask.flatten()] = tf
+                    tfs.append(tfeats)
 
             # tfs is terms by boots by features
             tfs = np.array(tfs)
