@@ -654,6 +654,8 @@ def _eval_model(model_id, perm=None, boot=None):
     # Transform residuals back to feature space
     #rfs = resds.T @ ssVh
     rfs = resds.T @ ssVh
+    rfs = np.array([rr.T @ rr for rr in rfs.T])
+
     # decide what to return
     if perm is None and boot is None:
         # return tvals, tfs, and R for actual non-permuted data
@@ -1227,7 +1229,7 @@ class MELD(object):
                     m = O[n].astype([(n,np.float64)]).view(dtype=np.float64, type=np.ndarray)
                     m_term = m.T @ m
                     # calculate residual
-                    rsds= np.sqrt((np.array([rsds_all[j,:,k].T @ rsds_all[j,:,k] for j in range(rsds_all.shape[0]) for k in range(rsds_all.shape[2])]))/(rsds_all.shape[1] - np.linalg.matrix_rank(m)))
+                    rsds= np.sqrt(rsds_all/(m.shape[0] - np.linalg.matrix_rank(m)))
                     rsds = rsds.reshape(nperms, -1)
 
                     bf = bpf[n]
@@ -1358,7 +1360,7 @@ class MELD(object):
                     m = O[n].astype([(n,np.float64)]).view(dtype=np.float64, type=np.ndarray)
                     m_term = m.T @ m
                     # calculate residual for term
-                    rsds= np.sqrt((np.array([rsds_all[j,:,k].T @ rsds_all[j,:,k] for j in range(rsds_all.shape[0]) for k in range(rsds_all.shape[2])]))/(rsds_all.shape[1] - np.linalg.matrix_rank(m)))
+                    rsds= np.sqrt(rsds_all/(m.shape[0] - np.linalg.matrix_rank(m)))
                     rsds = rsds.reshape(nperms, -1)
 
                     bf = bpf[n]
