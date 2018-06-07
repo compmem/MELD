@@ -7,9 +7,9 @@
 #
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ##
 
-from . import cluster, cluster_topdown_old, cluster_topdown, meld, nonparam, stat_helper, tfce
+from . import cluster, cluster_topdown_old, cluster_topdown, meld, nonparam, stat_helper, tfce, signal_gen
 
-__all__ = ['cluster', 'cluster_topdown', 'cluster_topdown_old', 'meld', 'nonparam', 'stat_helper', 'tfce']
+__all__ = ['cluster', 'cluster_topdown', 'cluster_topdown_old', 'meld', 'nonparam', 'stat_helper', 'tfce', 'signal_gen']
 
 #from . import cluster_topdown, test_tfce
 
