@@ -94,7 +94,7 @@ def boot_stat(stat, sterr):
     """
     orig_shape = stat.shape[1:]
     stat = stat.reshape(stat.shape[0], -1)
-    sterr = sterr.reshape(nperms, -1)
+    sterr = sterr.reshape(stat.shape[0], -1)
 
     # bootstrap hypothesis test is based on:
     # http://www.jstor.org/stable/2532163?seq=3#page_scan_tab_contents
