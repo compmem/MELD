@@ -276,7 +276,8 @@ class LMER():
             betas[i] = tuple(df.rx2('Estimate'))
             tvals[i] = tuple(df.rx2('t.value'))
             log_likes[i] = float(r['logLik'](ms)[0])
-        resds = r['resid'](ms)
+        #resds = r['resid'](ms)
+        resds = np.zeros(len(self._rdf[self._col_ind]))
         return resds, betas, tvals, log_likes
 
 
@@ -515,10 +516,9 @@ def _eval_model(model_id, perm=None, boot=None):
     #if boot is not None:
     #    import pdb; pdb.set_trace()
     # fix near zero vals from SVD
-    Vh[np.abs(Vh) < (.00000001 * mm._dt)] = 0.0
-    s[np.abs(s) < .00000001] = 0.0
-    # calc percent variance explained
-    pve = s**2/(s**2).sum()
+    epsilon = 0
+    Vh[np.abs(Vh) < (epsilon * mm._dt)] = 0.0
+    s[np.abs(s) < epsilon] = 0.0
 
     # filtering by percent variance explained 
     # drops the number of components too low, especially on bootstraps
@@ -538,6 +538,23 @@ def _eval_model(model_id, perm=None, boot=None):
     else:
         ss_ratio = ss/ss.sum()
     
+    # calc percent variance explained
+    if (s**2).sum() == 0:
+        pve = np.zeros_like(s)
+        # must make ss and dependent terms, too
+        ss = np.array([0.0])
+        ss_norm = np.array([0.0])
+        ss_filt = np.array([0.0])
+        ss_diag = np.zeros((1,1))
+        ssVh = np.zeros((1,*Vh.shape[1:]))
+        beta_project = np.zeros((1,*Vh.shape[1:]))
+    else:
+        pve = s**2/(s**2).sum()
+        ss_norm = ss_ratio[pve > ct]
+        ss_filt = ss[pve>ct]
+        ss_diag = diagsvd(ss_filt, len(ss_filt), len(ss_filt))
+        ssVh = blockwise_dot(ss_diag, Vh[pve > ct, ...])
+        beta_project = Vh[pve > ct, ...]
     # set up lmer
     O = None
     lmer = None
@@ -613,8 +630,7 @@ def _eval_model(model_id, perm=None, boot=None):
         temp_resds = np.zeros(Dw.shape[0])
         res.append((temp_resds, temp_b, temp_t, temp_ll))
 
-        # must make ss, too
-        ss = np.array([1.0])
+
         # print "perm fail"
 
     # pull out data from all the components
@@ -624,8 +640,11 @@ def _eval_model(model_id, perm=None, boot=None):
     tvals = np.concatenate(tvals)
     log_likes = np.concatenate(log_likes)
 
-    ss_norm = ss_ratio[pve > ct]
+    
     # recombine and scale the tvals across components
+    # for k in tvals.dtype.names:
+    #     if len(ss_norm) == 0:
+    #         import pdb; pdb.set_trace()
     bs = np.rec.fromarrays([np.dot(betas[k], ss_norm)  # /(ss>0.).sum()
                             for k in tvals.dtype.names],
                            names=','.join(tvals.dtype.names))
@@ -638,23 +657,26 @@ def _eval_model(model_id, perm=None, boot=None):
     bfs = []
     tfs = []
     rfs = np.zeros((resds.T.shape[0], Vh.shape[1]))
-    ss_filt = ss[pve>ct]
-    ss_diag = diagsvd(ss_filt, len(ss_filt), len(ss_filt))
-    ssVh = blockwise_dot(ss_diag, Vh[pve > ct, ...])
+
+    # in developing boot straps it appears that scaling the betas
+    # hurts performance, so I'm just using Vh for the betas
+    # only permutations use tfs, so I'm leaving that alone for now
+    # TODO: evaluate permutations w/jackknife
+
     for k in tvals.dtype.names:
         # tfs.append(np.dot(tvals[k],
         #                   np.dot(diagsvd(ss[ss > 0],
         #                                  len(ss[ss > 0]),
         #                                  len(ss[ss > 0])),
         #                          Vh[ss > 0, ...])))  # /(ss>0).sum())
-        bfs.append(blockwise_dot(betas[k], ssVh))
+        bfs.append(blockwise_dot(betas[k], beta_project))
         tfs.append(blockwise_dot(tvals[k], ssVh))
     bfs = np.rec.fromarrays(bfs, names=','.join(tvals.dtype.names))
     tfs = np.rec.fromarrays(tfs, names=','.join(tvals.dtype.names))
     # Transform residuals back to feature space
-    #rfs = resds.T @ ssVh
-    rfs = resds.T @ ssVh
-    rfs = np.array([rr.T @ rr for rr in rfs.T])
+    if mm._fvar_nboot == 0:
+        rfs = resds.T @ ssVh
+        rfs = np.array([rr.T @ rr for rr in rfs.T])
 
     # decide what to return
     if perm is None and boot is None:
@@ -740,7 +762,7 @@ class MELD(object):
                  memmap=False, memmap_dir=None,
                  resid_formula=None,
                  svd_terms=None, 
-                 feat_thresh=0.05, component_thresh=0.0,
+                 feat_thresh=0.05, 
                  feat_nboot=1000, do_tfce=False,
                  tfce_svd=False, z_transform=True,
                  connectivity=None, shape=None,
@@ -780,7 +802,9 @@ class MELD(object):
 
         # see the thresh for keeping a feature
         self._feat_thresh = feat_thresh
-        self._component_thresh = component_thresh
+        # using anything else as a component threshold decreases
+        # sensitivity to high signal
+        self._component_thresh = 0.0
         self._feat_nboot = feat_nboot
         self._do_tfce = do_tfce
         self._z_transform = z_transform
@@ -1238,9 +1262,9 @@ class MELD(object):
                     bf = bf.reshape(nperms, -1)
                     
                     boot_mean = bf
-                    boot_sterr = m_term*(rsds/(len(m)-np.linalg.matrix_rank(m)))
+                    boot_sterr = np.sqrt(m_term)*(rsds/(len(m)-np.linalg.matrix_rank(m)))
                     tf = np.zeros_like(boot_mean[0])
-                    tf[boot_sterr[0] != 0] = np.abs(((boot_mean[0])[boot_sterr[0] != 0])/boot_sterr[0][boot_sterr[0] != 0])
+                    tf[boot_sterr[0] != 0] = np.abs(((boot_mean[0])[boot_sterr[0] != 0])/(boot_sterr[0][boot_sterr[0] != 0]))
                     tfeat = np.zeros(self._feat_shape)
                     tfeat[self._dep_mask] = tf
                     tfeats.append(tfeat)
@@ -1324,6 +1348,11 @@ class MELD(object):
                     bf = bpf[n]
                     bf = bf.reshape(fmask.shape[0], -1)
                     bf[~fmask] = 0
+                    if do_tfce:
+                        for i in range(len(bf)):
+                            tmp_bf = np.zeros(self._dep_mask.shape)
+                            tmp_bf[self._dep_mask] = bf[i]
+                            bf[i] = meld.tfce.tfce(tmp_bf)[self._dep_mask]
                     bf = bf.reshape(nperms,self._fvar_nboot+1, -1)
 
                     # If the we've got more inner boots than people, do a bootstrap
@@ -1340,11 +1369,7 @@ class MELD(object):
                         boot_sterr = ((bf.shape[1]-1)/bf.shape[1])*np.sqrt(np.sum(((bf[:,0,:].reshape(bf.shape[0], 1, bf.shape[-1]) - bf[:,1:,:])**2), 1))
                     # calculate bootstrap hypothesis test stat taking into account
                     # guidelines from http://www.jstor.org/stable/2532163?seq=2#page_scan_tab_contents
-                    tf = np.zeros_like(boot_mean)
-                    tf[0][boot_sterr[0] != 0] = np.abs(((boot_mean[0])[boot_sterr[0] != 0])/boot_sterr[0][boot_sterr[0] != 0])
-                    #sdelta = np.sqrt((boot_std[0]**2 + boot_std[1:]**2))
-                    sdelta = boot_sterr[1:]
-                    tf[1:][boot_sterr[1:] != 0] = np.abs(((boot_mean[1:] - boot_mean[0])[boot_sterr[1:] != 0])/sdelta[boot_sterr[1:] != 0])
+                    tf = stat_helper.boot_stat(boot_mean, boot_sterr)
                     tfeats = np.zeros((nperms, np.product(self._feat_shape)))
                     tfeats[:,self._dep_mask.flatten()] = tf
                     tfs.append(tfeats)
@@ -1368,16 +1393,19 @@ class MELD(object):
                     bf[~fmask] = 0
                     bf = bf.reshape(nperms, -1)
                     
+                    if do_tfce:
+                        for i in range(len(bf)):
+                            tmp_bf = np.zeros(self._dep_mask.shape)
+                            tmp_bf[self._dep_mask] = bf[i]
+                            bf[i] = meld.tfce.tfce(tmp_bf)[self._dep_mask]
+
                     boot_mean = bf
-                    boot_sterr = m_term*(rsds/(len(m)-np.linalg.matrix_rank(m)))
-                    tf = np.zeros_like(boot_mean)
-                    tf[0][boot_sterr[0] != 0] = np.abs(((boot_mean[0])[boot_sterr[0] != 0])/boot_sterr[0][boot_sterr[0] != 0])
-                    #sdelta = np.sqrt((boot_std[0]**2 + boot_std[1:]**2))
-                    sdelta = boot_sterr[1:]
-                    tf[1:][boot_sterr[1:] != 0] = np.abs(((boot_mean[1:] - boot_mean[0])[boot_sterr[1:] != 0])/sdelta[boot_sterr[1:] != 0])
+                    boot_sterr = np.sqrt(m_term)*(rsds)
+                    tf = stat_helper.boot_stat(boot_mean, boot_sterr)
                     tfeats = np.zeros((nperms, np.product(self._feat_shape)))
                     tfeats[:,self._dep_mask.flatten()] = tf
                     tfs.append(tfeats)
+                    #import pdb; pdb.set_trace() 
 
             # tfs is terms by boots by features
             tfs = np.array(tfs)
@@ -1389,15 +1417,14 @@ class MELD(object):
 
                 # set the names to be new conj
                 names = ['&'.join(names)]
-
-            if do_tfce == True:
-                tfces = np.array([[tfce.tfce(tfs[i,j].reshape(self._feat_shape),
-                                             param_e=self._E,
-                                             param_h=self._H,
-                                             pad=True) 
-                                   for j in range(tfs.shape[1])] 
-                                   for i in range(tfs.shape[0])]).reshape(tfs.shape)
-                tfs = tfces
+            # if do_tfce == True:
+            #     tfces = np.array([[tfce.tfce(tfs[i,j].reshape(self._feat_shape),
+            #                                  param_e=self._E,
+            #                                  param_h=self._H,
+            #                                  pad=True) 
+            #                        for j in range(tfs.shape[1])] 
+            #                        for i in range(tfs.shape[0])]).reshape(tfs.shape)
+            #     tfs = tfces
 
             nullTdist = tfs.max(0).max(-1)
             nullTdist.sort()
