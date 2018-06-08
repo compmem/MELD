@@ -1236,11 +1236,9 @@ class MELD(object):
                     # Nested bootstrap gives us mean and standard error
                     boot_mean = bf[:,0,:]
                     boot_sterr = ((bf.shape[1]-1)/bf.shape[1])*np.sqrt(np.sum(((bf[:,0,:].reshape(bf.shape[0], 1, bf.shape[-1]) - bf[:,1:,:])**2), 1))
-
-                    tf = np.zeros_like(boot_mean[0])
-                    tf[boot_sterr[0] != 0] = np.abs(((boot_mean[0])[boot_sterr[0] != 0])/boot_sterr[0][boot_sterr[0] != 0])
+                    tf = stat_helper.boot_stat(boot_mean, boot_sterr)
                     tfeat = np.zeros(self._feat_shape)
-                    tfeat[self._dep_mask] = tf
+                    tfeat[self._dep_mask] = tf[0]
                     tfeats.append(tfeat)
             elif  self._fvar_nboot == 0:
                 c = np.identity(len(names))
@@ -1263,10 +1261,9 @@ class MELD(object):
                     
                     boot_mean = bf
                     boot_sterr = np.sqrt(m_term)*(rsds/(len(m)-np.linalg.matrix_rank(m)))
-                    tf = np.zeros_like(boot_mean[0])
-                    tf[boot_sterr[0] != 0] = np.abs(((boot_mean[0])[boot_sterr[0] != 0])/(boot_sterr[0][boot_sterr[0] != 0]))
+                    tf = stat_helper.boot_stat(boot_mean, boot_sterr)
                     tfeat = np.zeros(self._feat_shape)
-                    tfeat[self._dep_mask] = tf
+                    tfeat[self._dep_mask] = tf[0]
                     tfeats.append(tfeat)
         return np.rec.fromarrays(tfeats, names=','.join(names))
 
@@ -1348,11 +1345,6 @@ class MELD(object):
                     bf = bpf[n]
                     bf = bf.reshape(fmask.shape[0], -1)
                     bf[~fmask] = 0
-                    if do_tfce:
-                        for i in range(len(bf)):
-                            tmp_bf = np.zeros(self._dep_mask.shape)
-                            tmp_bf[self._dep_mask] = bf[i]
-                            bf[i] = tfce.tfce(tmp_bf)[self._dep_mask]
                     bf = bf.reshape(nperms,self._fvar_nboot+1, -1)
 
                     # If the we've got more inner boots than people, do a bootstrap
@@ -1392,12 +1384,6 @@ class MELD(object):
                     bf = bf.reshape(fmask.shape[0], -1)
                     bf[~fmask] = 0
                     bf = bf.reshape(nperms, -1)
-                    
-                    if do_tfce:
-                        for i in range(len(bf)):
-                            tmp_bf = np.zeros(self._dep_mask.shape)
-                            tmp_bf[self._dep_mask] = bf[i]
-                            bf[i] = meld.tfce.tfce(tmp_bf)[self._dep_mask]
 
                     boot_mean = bf
                     boot_sterr = np.sqrt(m_term)*(rsds)
@@ -1417,14 +1403,14 @@ class MELD(object):
 
                 # set the names to be new conj
                 names = ['&'.join(names)]
-            # if do_tfce == True:
-            #     tfces = np.array([[tfce.tfce(tfs[i,j].reshape(self._feat_shape),
-            #                                  param_e=self._E,
-            #                                  param_h=self._H,
-            #                                  pad=True) 
-            #                        for j in range(tfs.shape[1])] 
-            #                        for i in range(tfs.shape[0])]).reshape(tfs.shape)
-            #     tfs = tfces
+            if do_tfce == True:
+                tfces = np.array([[tfce.tfce(tfs[i,j].reshape(self._feat_shape),
+                                             param_e=self._E,
+                                             param_h=self._H,
+                                             pad=True) 
+                                   for j in range(tfs.shape[1])] 
+                                   for i in range(tfs.shape[0])]).reshape(tfs.shape)
+                tfs = tfces
 
             nullTdist = tfs.max(0).max(-1)
             nullTdist.sort()
