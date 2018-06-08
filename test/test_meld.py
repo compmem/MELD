@@ -97,7 +97,7 @@ def test_meld():
                 dep_data_s, ind_data, factors={'subj': None},
                 use_ranks=use_ranks,
                 dep_mask=dep_mask,
-                feat_nboot=1000, feat_thresh=0.05,component_thresh=0.2,
+                feat_nboot=1000, feat_thresh=0.05,
                 do_tfce=True,
                 connectivity=None, shape=None,
                 dt=.01, E=2/3., H=2.0,
