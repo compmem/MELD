@@ -23,6 +23,7 @@ from meld import stat_helper as msh
 from meld.nonparam import gen_perms
 import argparse
 from meld.meld import LMER
+import time
 
 # #Defining functions
 
@@ -516,21 +517,6 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
     # make list of subjects
     subjs = np.unique(ind_data['subj'])
 
-    # Run Meld   
-    me_s = meld.MELD(fe_formula, re_formula, 'subj',
-                dep_data, ind_data, factors = fact_dict,
-                use_ranks=False,
-                feat_nboot=500, feat_thresh=0.05,
-                do_tfce=True,
-                E=E, H=H,
-                n_jobs=n_jobs)
-
-    me_s.run_boots(nboots, fvar_nboot)
-    #me_s.run_perms(nboots)
-
-    # Save out boots
-    boots = me_s._boots
-
     # instatiate result list
     all_res =  []
     res_base = {'slope':slope,
@@ -549,98 +535,74 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
                'sn_stats':sn_stats,
                'model':me_s._formula_str,
                'glm_model':fe_formula,
-               #'nperms':nperms,
+               'nperms':nperms,
                'fvar_nboot':fvar_nboot,
                'nboots':nboots,
-               'alpha':pthr,
+               'alpha':pthr
                }
 
-    # Save out meld maps and error terms
-    me_terms = me_s.terms
-    me_t_terms = me_s.t_terms
-    me_tfs = me_s.t_features
-    me_pfs = me_s.get_p_features(do_tfce=False)
-
-    statmap = 1-me_pfs['beh']
-
-    res = res_base.copy()
-    res.update({'method': 'meld',
-                'tfce': False,
-                })
-    res.update(get_metrics(statmap,'beh', pthr, signal))
-    res['betas']  = me_s._bb[0]['beh']
-    res['tfs'] = me_tfs['beh']
-    res['pfs'] = me_pfs['beh']
-    res['tterm'] = me_s.t_terms['beh']
-    all_res.append(res)
-
-    me_pfs_tfce = me_s.get_p_features(do_tfce=True)
-    statmap = 1-me_pfs_tfce['beh']
-
-    res = res_base.copy()
-    res.update({'method': 'meld',
-                'tfce': True})
-    res.update(get_metrics(statmap,'beh', pthr, signal ))
-    res['tfs'] = tfce.tfce(me_tfs['beh'])
-    res['pfs'] = me_pfs_tfce['beh']
-    res['tterm'] = me_s.t_terms['beh']
-    all_res.append(res)
-
-    # Run meld without inner TFCE to make Anderson happy
-    print("running MELD without inner TFCE", flush=True)
-    me_sb = meld.MELD(fe_formula, re_formula, 'subj',
+    # Run all the flavors of meld
+    meld_run_settings = [{'method': 'meld_boot','feat_thresh':1, 'nboots':nboots, 'fvar_nboot': fvar_nboot, 'do_tfce': True, 'tfce_svd':False},
+                         {'method': 'meld_boot_notfce','feat_thresh':1,'nboots':nboots, 'fvar_nboot': fvar_nboot, 'do_tfce': False, 'tfce_svd':False},
+                         {'method': 'meld_perm','feat_thresh':0.05,'nperms':nperms, 'do_tfce': True, 'tfce_svd':True},
+                         {'method': 'meld_perm_notfce','feat_thresh':0.05,'nperms':nperms, 'do_tfce': False, 'tfce_svd':True}]
+    boots = None
+    for mrs in meld_run_settings:
+        start = time.time()
+        # Run Meld
+        me_s = meld.MELD(fe_formula, re_formula, 'subj',
                 dep_data, ind_data, factors = fact_dict,
                 use_ranks=False,
                 feat_nboot=500, feat_thresh=0.05,
-                do_tfce=False,
+                do_tfce=mrs['do_tfce'],tfce_svd=mrs['tfce_svd'],
                 E=E, H=H,
                 n_jobs=n_jobs)
+        try:
+            me_s.run_boots(mrs['nboots'], mrs['fvar_nboot'])
+            #me_s.run_perms(nboots)
+            if boots is None:
+                boots = [np.arange(nsubj)]
+                boots.extend(me_s._boots)
+        except KeyError:
+            me_s.run_perms(mrs['nperms'])
+        method_time = time.time() - start
+        # Save out meld maps and error terms
+        me_terms = me_s.terms
+        me_t_terms = me_s.t_terms
+        me_tfs = me_s.t_features
+        for ptfce in [False, True]:
+            me_pfs = me_s.get_p_features(do_tfce=ptfce)
+            if ptfce:
+                me_tfs['beh'] = tfce.tfce(me_tfs['beh'])
 
-    me_sb.run_boots(nboots, fvar_nboot)
+            statmap = 1-me_pfs['beh']
 
-    # Save out meld maps and error terms
-    me_terms = me_sb.terms
-    me_t_terms = me_sb.t_terms
-    me_tfs = me_sb.t_features
-    me_pfs = me_sb.get_p_features(do_tfce=False)
+            res = res_base.copy()
+            res.update({'method': mrs['method'],
+                        'tfce': ptfce,
+                        })
+            res.update(get_metrics(statmap,'beh', pthr, signal))
+            res['betas']  = me_s._bb[0]['beh']
+            res['tfs'] = me_tfs['beh']
+            res['pfs'] = me_pfs['beh']
+            res['tterm'] = me_s.t_terms['beh']
+            res['time'] = method_time
+            all_res.append(res)
 
-    statmap = 1-me_pfs['beh']
-
-    res = res_base.copy()
-    res.update({'method': 'meld_notfce',
-                'tfce': False,
-                })
-    res.update(get_metrics(statmap,'beh', pthr, signal))
-    res['betas'] = me_sb._bb[0]['beh']
-    res['tfs'] = me_tfs['beh']
-    res['pfs'] = me_pfs['beh']
-    res['tterm'] = me_sb.t_terms['beh']
-    all_res.append(res)
-
-    me_pfs_tfce = me_sb.get_p_features(do_tfce=True)
-    statmap = 1-me_pfs_tfce['beh']
-
-    res = res_base.copy()
-    res.update({'method': 'meld_notfce',
-                'tfce': True})
-    res.update(get_metrics(statmap,'beh', pthr, signal ))
-    res['tfs'] = tfce.tfce(me_tfs['beh'])
-    res['pfs'] = me_pfs_tfce['beh']
-    res['tterm'] = me_sb.t_terms['beh']
-    all_res.append(res)
 
     # Run GLM analysis
     print("fitting GLM", flush=True)
+    start = time.time()
     glm_subj_res = eval_glm_subjs(fe_formula, ind_data, dep_data, n_jobs=n_jobs, backend=backend)
     glm_boot_res = []
     glm_boot_res.append(glm_subj_res)
     # Boot strap GLM
     # (This is really just rearranging results from the GLM since it's run per subject)
     for boot in boots:
-
         glm_boot_res.append(eval_glm_subjs(fe_formula, ind_data, dep_data, 
                                                                single_subject_res=glm_subj_res,
                                                                boot=boot))
+    method_time = time.time() - start
     glm_boot_t_res = np.array([stats.ttest_1samp(gbr, 0, axis=0)[0] for gbr in glm_boot_res])
     nperms = (len(boots)+1)//(fvar_nboot+1)
     glm_boot_t, glm_p = get_boot_p(glm_boot_t_res,  nperms, fvar_nboot, dep_data, do_tfce=False, E=E, H=H)
@@ -657,6 +619,7 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
     res['pfs'] = glm_p[0]
     res['betas'] = glm_subj_res[0].mean(0)
     res['orig_tvals'] = glm_boot_t_res[0]
+    res['time'] = method_time
     all_res.append(res)
 
     statmap = 1-glm_p_tfce[0]
@@ -668,6 +631,7 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
     res.update(get_metrics(statmap,'beh', pthr, signal))
     res['tfs'] = glm_boot_tfce[0]
     res['pfs'] = glm_p_tfce[0]
+    res['time'] = method_time
     all_res.append(res)
 
     # Run LMER on original data
@@ -675,6 +639,7 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
     lmer_betas = []
     lmer_tvals = []
     # Run lmer with real data
+    start = time.time()
     global _global_lmer
     _global_lmer = {}
     lm = LMER(fe_formula+' + ' + re_formula, ind_data)
@@ -696,7 +661,7 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
     boot_lmer_betas, boot_lmer_tvals = zip(*res)
     lmer_betas.extend(boot_lmer_betas)
     lmer_tvals.extend(boot_lmer_tvals)
-
+    method_time = time.time() - start 
     del _global_lmer
 
     lmer_betas = np.array(lmer_betas)
@@ -715,6 +680,7 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
     res['pfs'] = lmer_boot_p[0]
     res['betas'] = lmer_betas[0]
     res['orig_tvals'] = lmer_tvals[0]
+    res['time'] = method_time
     all_res.append(res)
 
     lmer_boot_tfce, lmer_boot_p_tfce = get_boot_p(lmer_betas, nperms,fvar_nboot, lmer_dep_data, do_tfce= True, E=E, H=H)
@@ -727,6 +693,7 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
     res.update(get_metrics(statmap,'beh', pthr, signal[50:52,29:56]))
     res['tfs'] = lmer_boot_tfce[0]
     res['pfs'] = lmer_boot_p_tfce[0]
+    res['time'] = method_time
     all_res.append(res)
     
     return all_res
