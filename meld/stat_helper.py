@@ -6,8 +6,6 @@ def _ecdf(x):
     nobs = len(x)
     return np.arange(1, nobs + 1) / float(nobs)
 
-
-
 def fdr_correction(pvals, alpha=0.05, method='indep'):
     """P-value correction with False Discovery Rate (FDR)
 
@@ -69,3 +67,44 @@ def fdr_correction(pvals, alpha=0.05, method='indep'):
     pvals_corrected = pvals_corrected[sortrevind].reshape(shape_init)
     reject = reject[sortrevind].reshape(shape_init)
     return reject, pvals_corrected
+
+def boot_stat(stat, sterr):
+    """Calculate a boostrap hypothesis testing statistic.
+    Based on recomendations for bootstrap hypothesis testing from
+    Hall and Wilson, 1991.
+
+    Parameters
+    ----------
+    stat: array
+        Array of statistic to be tested for each bootstrap. Nboostraps x [feature dimensions].
+        Statistic for original data is expected to be first.
+    standard error: array
+        Array of standard errors of each statistic. Nboostraps x [feature dimensions].
+
+    Returns
+    -------
+    bjt: array
+        Array of bootstrap statistic Nboostraps x [feature dimensions].
+
+    Notes
+    -----
+    Reference:
+    Hall P, Wilson SR, Two Guidelines for Bootstrap Hypothesis Testing. 
+    Biometrics. June 1991 47, 757-762
+    """
+    orig_shape = stat.shape[1:]
+    stat = stat.reshape(stat.shape[0], -1)
+    sterr = sterr.reshape(stat.shape[0], -1)
+
+    # bootstrap hypothesis test is based on:
+    # http://www.jstor.org/stable/2532163?seq=3#page_scan_tab_contents
+    bjt = np.zeros(stat.shape)
+    # bootjack t for original data is just the original data divided by its bootstraps
+    bjt[0][sterr[0] != 0] = np.abs(((stat[0])[sterr[0] != 0])/sterr[0][sterr[0] != 0])
+    # bootjack t for rest of null distribution is stat_repl - stat_orig/standarderror_repl
+    bjt[1:][sterr[1:] != 0] = np.abs(((stat[1:] - stat[0])[sterr[1:] != 0])/sterr[1:][sterr[1:] != 0])
+    bjt = bjt.reshape(-1, *orig_shape)
+
+    return bjt
+
+
