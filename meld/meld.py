@@ -276,8 +276,8 @@ class LMER():
             betas[i] = tuple(df.rx2('Estimate'))
             tvals[i] = tuple(df.rx2('t.value'))
             log_likes[i] = float(r['logLik'](ms)[0])
-        #resds = r['resid'](ms)
-        resds = np.zeros(len(self._rdf[self._col_ind]))
+        resds = r['resid'](ms)
+        #resds = np.zeros(len(self._rdf[self._col_ind]))
         return resds, betas, tvals, log_likes
 
 
@@ -656,7 +656,7 @@ def _eval_model(model_id, perm=None, boot=None):
     # rfs = np.zeros()
     bfs = []
     tfs = []
-    rfs = np.zeros((resds.T.shape[0], Vh.shape[1]))
+    
 
     # in developing boot straps it appears that scaling the betas
     # hurts performance, so I'm just using Vh for the betas
@@ -674,9 +674,11 @@ def _eval_model(model_id, perm=None, boot=None):
     bfs = np.rec.fromarrays(bfs, names=','.join(tvals.dtype.names))
     tfs = np.rec.fromarrays(tfs, names=','.join(tvals.dtype.names))
     # Transform residuals back to feature space
-    if mm._fvar_nboot == 0:
+    if boot is not None and mm._fvar_nboot == 0:
         rfs = resds.T @ ssVh
         rfs = np.array([rr.T @ rr for rr in rfs.T])
+    else:
+        rfs = np.zeros((Vh.shape[1]))
 
     # decide what to return
     if perm is None and boot is None:
