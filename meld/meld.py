@@ -474,8 +474,9 @@ def _eval_model(model_id, perm=None, boot=None):
 
     # turn to Z
     # make sure we are not 1/-1
-    R_nocat[R_nocat > .9999] = .9999
-    R_nocat[R_nocat < -.9999] = -.9999
+    epsilon = 1e-15
+    R_nocat[R_nocat > 1 - epsilon] = 1 - epsilon
+    R_nocat[R_nocat < -1 + epsilon] = -1 + epsilon
     if mm._z_transform:
         R_nocat = np.arctanh(R_nocat)
 
@@ -516,9 +517,9 @@ def _eval_model(model_id, perm=None, boot=None):
     #if boot is not None:
     #    import pdb; pdb.set_trace()
     # fix near zero vals from SVD
-    epsilon = 0
-    Vh[np.abs(Vh) < (epsilon * mm._dt)] = 0.0
-    s[np.abs(s) < epsilon] = 0.0
+    # epsilon = 0
+    # Vh[np.abs(Vh) < (epsilon * mm._dt)] = 0.0
+    # s[np.abs(s) < epsilon] = 0.0
 
     # filtering by percent variance explained 
     # drops the number of components too low, especially on bootstraps
