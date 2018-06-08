@@ -8,7 +8,7 @@ RUN pip3 install --upgrade pip \
     && pip3 --no-cache-dir install scipy scikit-learn matplotlib joblib==0.8.4 seaborn pandas tables statsmodels numba nilearn line_profiler Cython
 
 RUN mkdir /meld
-COPY . /meld
+COPY ./ /meld/
 
 RUN pip3 --no-cache-dir install /meld
 
