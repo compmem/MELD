@@ -460,9 +460,9 @@ def get_boot_p(stat, nperms, fvar_nboot, dep_data, do_tfce=False, E=0.6666666666
     tfs = np.array(tfs)
 
     if do_tfce == True:
-        tfces = np.array([[tfce.tfce(tfs[i,j].reshape(self._feat_shape),
-                                     param_e=self._E,
-                                     param_h=self._H,
+        tfces = np.array([[tfce.tfce(tfs[i,j].reshape(dep_data.shape[1:]),
+                                     param_e=E,
+                                     param_h=H,
                                      pad=True) 
                            for j in range(tfs.shape[1])] 
                            for i in range(tfs.shape[0])]).reshape(tfs.shape)
@@ -533,7 +533,6 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
                'mod_mnoise':mod_mnoise,
                'mod_cont':mod_cont,
                'sn_stats':sn_stats,
-               'model':me_s._formula_str,
                'glm_model':fe_formula,
                'nperms':nperms,
                'fvar_nboot':fvar_nboot,
@@ -557,12 +556,12 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
                 do_tfce=mrs['do_tfce'],tfce_svd=mrs['tfce_svd'],
                 E=E, H=H,
                 n_jobs=n_jobs)
+        res_base['model'] = me_s._formula_str,
         try:
             me_s.run_boots(mrs['nboots'], mrs['fvar_nboot'])
             #me_s.run_perms(nboots)
             if boots is None:
-                boots = [np.arange(nsubj)]
-                boots.extend(me_s._boots)
+                boots = me_s._boots
         except KeyError:
             me_s.run_perms(mrs['nperms'])
         method_time = time.time() - start
@@ -604,11 +603,13 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
                                                                boot=boot))
     method_time = time.time() - start
     glm_boot_t_res = np.array([stats.ttest_1samp(gbr, 0, axis=0)[0] for gbr in glm_boot_res])
+    glm_boot_p_res = np.array([stats.ttest_1samp(gbr, 0, axis=0)[1] for gbr in glm_boot_res])
+
     nperms = (len(boots)+1)//(fvar_nboot+1)
     glm_boot_t, glm_p = get_boot_p(glm_boot_t_res,  nperms, fvar_nboot, dep_data, do_tfce=False, E=E, H=H)
     glm_boot_tfce, glm_p_tfce = get_boot_p(glm_boot_t_res,  nperms, fvar_nboot, dep_data, do_tfce=True, E=E, H=H)
 
-    statmap = 1-glm_p[0]
+    statmap = 1-(glm_boot_p_res[0])*10000
 
     res = res_base.copy()
     res.update({'method': 'glm',
@@ -617,8 +618,9 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
     res.update(get_metrics(statmap,'beh', pthr, signal))
     res['tfs'] = glm_boot_t[0]
     res['pfs'] = glm_p[0]
-    res['betas'] = glm_subj_res[0].mean(0)
+    res['betas'] = np.array(glm_subj_res).mean(0)
     res['orig_tvals'] = glm_boot_t_res[0]
+    res['orig_pvals'] = glm_boot_p_res[0]
     res['time'] = method_time
     all_res.append(res)
 
@@ -712,6 +714,7 @@ if __name__=='__main__':
     parser.add_argument('--Ss', nargs = "+")
     parser.add_argument('--prop', default=0.5)
     parser.add_argument('--nboots', default = 500)
+    parser.add_argument('--nperms', default = 500)
     parser.add_argument('--fvar_nboot', default = "nsubj")
     parser.add_argument('--nruns', default = 1)
     parser.add_argument('--n_jobs', default = 2)
@@ -729,6 +732,7 @@ if __name__=='__main__':
     signal_name = str(args.signal_name)
     prop = float(args.prop)
     nboots = int(args.nboots)
+    nperms = int(args.nperms)
     nruns = int(args.nruns)
     n_jobs = int(args.n_jobs)
     backend = str(args.backend)
@@ -829,7 +833,7 @@ if __name__=='__main__':
                             res = test_sim_dat(nsubj,nobs,slope,signal,signal_name,run,prop,mnoise=mnoise,
                                                contvar=contvar,item_inds=item_inds,
                                                mod_mnoise=mod_mnoise,mod_cont=mod_cont,
-                                               nfeat=nfeat,n_jobs=n_jobs,nboots=nboots,fvar_nboot=fvar_nboot,
+                                               nfeat=nfeat,n_jobs=n_jobs,nboots=nboots, nperms=nperms,fvar_nboot=fvar_nboot,
                                                I=I,S=S,
                                                feat_thresh=feat_thresh,
                                                data=None, backend="multiprocessing")
