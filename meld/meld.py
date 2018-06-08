@@ -1352,7 +1352,7 @@ class MELD(object):
                         for i in range(len(bf)):
                             tmp_bf = np.zeros(self._dep_mask.shape)
                             tmp_bf[self._dep_mask] = bf[i]
-                            bf[i] = meld.tfce.tfce(tmp_bf)[self._dep_mask]
+                            bf[i] = tfce.tfce(tmp_bf)[self._dep_mask]
                     bf = bf.reshape(nperms,self._fvar_nboot+1, -1)
 
                     # If the we've got more inner boots than people, do a bootstrap
