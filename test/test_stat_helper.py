@@ -13,6 +13,6 @@ def test_boot_stat():
 
                                [[  2. ],
                                 [  2. ]]], dtype=float)
-    observed = boot_stat(stat, sterr)
+    observed = msh.boot_stat(stat, sterr)
     assert (observed == expected).all()
     assert observed.dtype == expected.dtype
