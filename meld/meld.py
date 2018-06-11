@@ -442,7 +442,6 @@ def _eval_model(model_id, perm=None, boot=None):
     else:
         ind_b = boot
 
-
     # loop over group vars
     ind = {}
     for i,k in enumerate(mm._groups[ind_b]):
@@ -451,7 +450,7 @@ def _eval_model(model_id, perm=None, boot=None):
         M = mm._M[k]
 
         # gen a perm for that subj
-        if perm is None:
+        if perm is None or mm._fe_flip is not None:
             ind[k] = np.arange(len(A))
         else:
             ind[k] = perm[k]
@@ -459,6 +458,16 @@ def _eval_model(model_id, perm=None, boot=None):
         if perm is None and mm._R is not None:
             # reuse R we already calculated
             R.append(mm._R[ind_b[i]])
+        elif perm is not None and mm._fe_flip is not None:
+            # Recalculate A with the permuted O
+
+            # Norm the permed fe so we can drop it in the _A matrix on each perm
+            tmpvals = perm[k]
+            tmpvals -= tmpvals.mean(0)
+            if not (tmpvals.max() == tmpvals.min()) & (tmpvals.min() == 0):
+                tmpvals /= np.sqrt((tmpvals**2).sum(0))
+            A[:,np.array(mm._svd_terms)==mm._fe_flip] = tmpvals[:,np.newaxis]
+            R.append(blockwise_dot(M.T, A).T)
         else:
             # calc the correlation
             #R.append(np.dot(A.T,M[ind[k]].copy()))
@@ -559,11 +568,14 @@ def _eval_model(model_id, perm=None, boot=None):
     # set up lmer
     O = None
     lmer = None
-    if mm._mer is None or boot is not None:
+    if mm._mer is None or boot is not None or mm._fe_flip is not None:
         O = []
         for i, ib in enumerate(ind_b):
             tempO = mm._O[ib].copy()
-            tempO[mm._re_group] = mm._groups[i]
+            if perm is not None:
+                tempO[mm._fe_flip] = perm[ib]
+            else:
+                tempO[mm._re_group] = mm._groups[i]
             O.append(tempO)
         lmer = LMER(mm._formula_str, np.concatenate(O),
                     factors=mm._factors,
@@ -759,6 +771,7 @@ class MELD(object):
     """
     def __init__(self, fe_formula, re_formula,
                  re_group, dep_data, ind_data,
+                 fe_flip=None, fe_flip_level = None,
                  factors=None, row_mask=None,
                  dep_mask=None,
                  use_ranks=False, use_norm=True,
@@ -984,6 +997,10 @@ class MELD(object):
             lmer_opts = {}
         self._lmer_opts = lmer_opts
         self._factors = factors
+        self._fe_flip = fe_flip
+        if fe_flip is not None and fe_flip_level is None:
+            raise Exception("Must provide the level at which fixed effect labels should be flipped if you want fixed effects labels to be flipped.")
+        self._fe_flip_level = fe_flip_level
 
         # mask the connectivity
         if self._do_tfce and (self._connectivity is not None) and (len(self._dep_mask.flatten()) > self._dep_mask.sum()):
@@ -1077,13 +1094,30 @@ class MELD(object):
 
             # gen the perms ahead of time
             perms = []
-            for p in range(nperms):
-                ind = {}
-                for k in self._groups:
-                    # gen a perm for that subj
-                    ind[k] = np.random.permutation(len(self._A[k]))
+            if self._fe_flip is None:
+                # If they're normal perms, make normal perms
+                for p in range(nperms):
+                    ind = {}
+                    for k in self._groups:
+                        # gen a perm for that subj
+                        ind[k] = np.random.permutation(len(self._A[k]))
 
-                perms.append(ind)
+                    perms.append(ind)
+            # If they're fixed effect flipping perms, make those instead
+            else:
+                dat_df = pd.DataFrame(np.concatenate(self._O))
+                # check that each item is only a member of one level of a the fixed effect to be flipped
+                assert np.array([len(il)==1 for il in dat_df.groupby(self._fe_flip_level)[self._fe_flip].unique()]).all()
+
+                fe_orig = [il[0] for il in dat_df.groupby(self._fe_flip_level)[self._fe_flip].unique()]
+                for p in range(nperms):
+                    permp = {}
+                    fe_perm = np.random.permutation(fe_orig).squeeze()
+                    dat_df[self._fe_flip + '_permed'] = dat_df.groupby(self._fe_flip_level, as_index=False)[self._fe_flip_level].transform(lambda x: fe_perm[x])
+                    for g,df in dat_df.groupby(self._re_group):
+                        permp[g] = df[self._fe_flip + '_permed'].values
+                    perms.append(permp)
+
         else:
             # calc nperms
             nperms = len(perms)
