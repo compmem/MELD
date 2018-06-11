@@ -410,36 +410,65 @@ def run_lmer(lmer_id, vals, variables):
     return betas,tvals
 
 def run_lmer_boot(boot, ind_data, lmer_dep_data, formula, variables):
-        boot_ind = []
-        boot_dep = []
-        for i,bs in enumerate(boot):
-            tmp_inds = ind_data[ind_data['subj']==bs].copy()
-            tmp_inds['subj'] = i
-            boot_ind.append(tmp_inds)
-            boot_dep.append(lmer_dep_data[ind_data['subj']==bs])
-        boot_ind = np.concatenate(boot_ind)
-        boot_dep = np.concatenate(boot_dep)
+    boot_ind = []
+    boot_dep = []
+    for i,bs in enumerate(boot):
+        tmp_inds = ind_data[ind_data['subj']==bs].copy()
+        tmp_inds['subj'] = i
+        boot_ind.append(tmp_inds)
+        boot_dep.append(lmer_dep_data[ind_data['subj']==bs])
+    boot_ind = np.concatenate(boot_ind)
+    boot_dep = np.concatenate(boot_dep)
 
-        lmer_betas = []
-        lmer_tvals = []
-        lm = LMER(formula, boot_ind)
-        flat_dep_data = boot_dep.reshape(boot_dep.shape[0], -1)
-        res = []
-        feat_betas = []
-        feat_tvals = []
-        for i in np.arange(np.product(flat_dep_data.shape[1:])):
-            betas = np.zeros(len(variables))
-            tvals = np.zeros(len(variables))
-            for i,b in (enumerate(betas)):
-                _resds, _betas, _tvals, _log_likes = lm.run(vals=flat_dep_data[:,i])
-                for j, var in enumerate(variables):
-                    betas[j] = _betas[var]
-                    tvals[j] = _tvals[var]
-                feat_betas.append(betas)
-                feat_tvals.append(tvals)
-        lmer_betas.extend(np.array(feat_betas).squeeze().T.reshape( *boot_dep.shape[1:]))
-        lmer_tvals.extend(np.array(feat_tvals).squeeze().T.reshape( *boot_dep.shape[1:]))
-        return lmer_betas, lmer_tvals
+    lmer_betas = []
+    lmer_tvals = []
+    lm = LMER(formula, boot_ind)
+    flat_dep_data = boot_dep.reshape(boot_dep.shape[0], -1)
+    res = []
+    feat_betas = []
+    feat_tvals = []
+    for i in np.arange(flat_dep_data.shape[-1]):
+        betas = np.zeros(len(variables))
+        tvals = np.zeros(len(variables))
+        _resds, _betas, _tvals, _log_likes = lm.run(vals=flat_dep_data[:,i])
+        for j, var in enumerate(variables):
+            betas[j] = _betas[var]
+            tvals[j] = _tvals[var]
+        feat_betas.append(betas)
+        feat_tvals.append(tvals)
+    lmer_betas.extend(np.array(feat_betas).squeeze().T.reshape( *boot_dep.shape[1:]))
+    lmer_tvals.extend(np.array(feat_tvals).squeeze().T.reshape( *boot_dep.shape[1:]))
+    return lmer_betas, lmer_tvals
+
+def run_lmer_perm(perm, ind_data, lmer_dep_data, formula, variables):
+    perm_ind = []
+    perm_dep = []
+    flat_perm = []
+    for sid in np.unique(ind_data['subj']):
+        flat_perm.extend(perm[sid])
+    perm_ind = ind_data.copy()
+    perm_ind['beh'] = flat_perm
+
+    lmer_betas = []
+    lmer_tvals = []
+    lm = LMER(formula, perm_ind)
+    flat_dep_data = lmer_dep_data.reshape(lmer_dep_data.shape[0], -1)
+    res = []
+    feat_betas = []
+    feat_tvals = []
+    for i in np.arange(flat_dep_data.shape[-1]):
+        betas = np.zeros(len(variables))
+        tvals = np.zeros(len(variables))
+        _resds, _betas, _tvals, _log_likes = lm.run(vals=flat_dep_data[:,i])
+        for j, var in enumerate(variables):
+            betas[j] = _betas[var]
+            tvals[j] = _tvals[var]
+        feat_betas.append(betas)
+        feat_tvals.append(tvals)
+    lmer_betas.extend(np.array(feat_betas).squeeze().T.reshape( *lmer_dep_data.shape[1:]))
+    lmer_tvals.extend(np.array(feat_tvals).squeeze().T.reshape( *lmer_dep_data.shape[1:]))
+    return lmer_betas, lmer_tvals
+
 
 def get_boot_p(stat, nperms, fvar_nboot, dep_data, do_tfce=False, E=0.6666666666, H=2):
     stat = stat.copy()
@@ -541,24 +570,26 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
                }
 
     # Run all the flavors of meld
-    meld_run_settings = [{'method': 'meld_boot','feat_thresh':1, 'nboots':nboots, 'fvar_nboot': fvar_nboot, 'do_tfce': True, 'tfce_svd':False},
-                         {'method': 'meld_boot_notfce','feat_thresh':1,'nboots':nboots, 'fvar_nboot': fvar_nboot, 'do_tfce': False, 'tfce_svd':False},
-                         {'method': 'meld_perm','feat_thresh':0.05,'nperms':nperms, 'do_tfce': True, 'tfce_svd':True},
+    meld_run_settings = [{'method': 'meld_perm','feat_thresh':0.05,'nperms':nperms, 'do_tfce': True, 'tfce_svd':True},
                          {'method': 'meld_perm_notfce','feat_thresh':0.05,'nperms':nperms, 'do_tfce': False, 'tfce_svd':True}]
-    boots = None
+    perms = None
     for mrs in meld_run_settings:
+        try:
+            perms = me_s._perms
+        except NameError:
+            perms = nperms
         start = time.time()
         # Run Meld
         me_s = meld.MELD(fe_formula, re_formula, 'subj',
                 dep_data, ind_data, factors = fact_dict,
-                use_ranks=False,
+                use_ranks=False, fe_flip='beh', fe_flip_level = 'item',
                 feat_nboot=500, feat_thresh=0.05,
                 do_tfce=mrs['do_tfce'],tfce_svd=mrs['tfce_svd'],
                 E=E, H=H,
                 n_jobs=n_jobs)
         res_base['model'] = me_s._formula_str,
         try:
-            me_s.run_boots(mrs['nboots'], mrs['fvar_nboot'])
+            me_s.run_perms(mrs['nboots'], mrs['fvar_nboot'])
             #me_s.run_perms(nboots)
             if boots is None:
                 boots = me_s._boots
@@ -588,7 +619,6 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
             res['time'] = method_time
             all_res.append(res)
 
-
     # Run GLM analysis
     print("fitting GLM", flush=True)
     start = time.time()
@@ -597,42 +627,35 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
     glm_boot_res.append(glm_subj_res)
     # Boot strap GLM
     # (This is really just rearranging results from the GLM since it's run per subject)
-    for boot in boots:
-        glm_boot_res.append(eval_glm_subjs(fe_formula, ind_data, dep_data, 
-                                                               single_subject_res=glm_subj_res,
-                                                               boot=boot))
     method_time = time.time() - start
     glm_boot_t_res = np.array([stats.ttest_1samp(gbr, 0, axis=0)[0] for gbr in glm_boot_res])
     glm_boot_p_res = np.array([stats.ttest_1samp(gbr, 0, axis=0)[1] for gbr in glm_boot_res])
 
-    nperms = (len(boots)+1)//(fvar_nboot+1)
-    glm_boot_t, glm_p = get_boot_p(glm_boot_t_res,  nperms, fvar_nboot, dep_data, do_tfce=False, E=E, H=H)
-    glm_boot_tfce, glm_p_tfce = get_boot_p(glm_boot_t_res,  nperms, fvar_nboot, dep_data, do_tfce=True, E=E, H=H)
-
-    statmap = 1-(glm_boot_p_res[0])*10000
+    glm_boot_bnf_res = glm_boot_p_res[0]*10000
+    glm_boot_bnf_res[glm_boot_bnf_res > 1] = 1
+    statmap = 1-glm_boot_bnf_res
 
     res = res_base.copy()
     res.update({'method': 'glm',
                 'tfce': False,
                 })
     res.update(get_metrics(statmap,'beh', pthr, signal))
-    res['tfs'] = glm_boot_t[0]
-    res['pfs'] = glm_p[0]
+    res['tfs'] = glm_boot_t_res[0]
+    res['pfs'] = glm_boot_p_res[0]
     res['betas'] = np.array(glm_subj_res).mean(0)
-    res['orig_tvals'] = glm_boot_t_res[0]
-    res['orig_pvals'] = glm_boot_p_res[0]
     res['time'] = method_time
     all_res.append(res)
 
-    statmap = 1-glm_p_tfce[0]
+    alpha_p = get_alphamap(glm_boot_t_res[0], glm_boot_p_res[0], 0.05, asims=asims_dd['100x100'])
+    statmap = 1 - alpha_p
 
     res = res_base.copy()
-    res.update({'method': 'glm',
+    res.update({'method': 'glm_alphasim',
                 'tfce': True,
                 })
     res.update(get_metrics(statmap,'beh', pthr, signal))
-    res['tfs'] = glm_boot_tfce[0]
-    res['pfs'] = glm_p_tfce[0]
+    res['tfs'] = glm_boot_t_res[0]
+    res['pfs'] = alpha_p
     res['time'] = method_time
     all_res.append(res)
 
@@ -657,9 +680,9 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
 
     print("Starting LMERs", flush=True)
     # Run LMER on bootstraps
-    res = Parallel(n_jobs=n_jobs, backend=backend,verbose=10)(delayed(run_lmer_boot)
-                   (boot, ind_data, lmer_dep_data, fe_formula+' + ' + re_formula, ['beh'])
-                   for boot in boots)
+    res = Parallel(n_jobs=n_jobs, backend=backend,verbose=10)(delayed(run_lmer_perm)
+               (perm, ind_data, lmer_dep_data, fe_formula+' + ' + re_formula, ['beh'])
+               for perm in perms)
     boot_lmer_betas, boot_lmer_tvals = zip(*res)
     lmer_betas.extend(boot_lmer_betas)
     lmer_tvals.extend(boot_lmer_tvals)
@@ -669,32 +692,39 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
     lmer_betas = np.array(lmer_betas)
     lmer_tvals = np.array(lmer_tvals)
 
-    # Get LMER results
-    lmer_boot_t, lmer_boot_p = get_boot_p(lmer_betas, nperms,fvar_nboot, lmer_dep_data, do_tfce=False, E=E, H=H)
-    statmap = 1-lmer_boot_p[0]
+    # get lmer feature pvalues
+    nullTdist = lmer_tvals.reshape(lmer_tvals.shape[0], -1).max(1)
+    nullTdist.sort()
+    lmer_p = (((nperms+1)-np.searchsorted(nullTdist, lmer_tvals[0].flatten(), 'left')) /
+                          (nperms+1)).reshape(lmer_tvals.shape[1:])
+    statmap = 1-lmer_p
 
     res = res_base.copy()
     res.update({'method': 'lmer',
                 'tfce': False,
                 })
     res.update(get_metrics(statmap,'beh', pthr, signal[50:52,29:56]))
-    res['tfs'] = lmer_boot_t[0]
-    res['pfs'] = lmer_boot_p[0]
+    res['tfs'] = lmer_tvals[0]
+    res['pfs'] = lmer_p
     res['betas'] = lmer_betas[0]
-    res['orig_tvals'] = lmer_tvals[0]
-    res['time'] = method_time
     all_res.append(res)
 
-    lmer_boot_tfce, lmer_boot_p_tfce = get_boot_p(lmer_betas, nperms,fvar_nboot, lmer_dep_data, do_tfce= True, E=E, H=H)
-    statmap = 1-lmer_boot_p_tfce[0]
+    lmer_tfce_tvals = np.array([tfce.tfce(lt, param_e=E, param_h=H) for lt in lmer_tvals])
+
+    # get lmer tfce features pvalues
+    nullTdist = lmer_tfce_tvals.reshape(lmer_tfce_tvals.shape[0], -1).max(1)
+    nullTdist.sort()
+    lmer_tfce_p = (((nperms+1)-np.searchsorted(nullTdist, lmer_tfce_tvals[0].flatten(), 'left')) /
+                          (nperms+1)).reshape(lmer_tvals.shape[1:])
 
     res = res_base.copy()
     res.update({'method': 'lmer',
                 'tfce': True,
                 })
+    statmap = 1-lmer_tfce_p
     res.update(get_metrics(statmap,'beh', pthr, signal[50:52,29:56]))
-    res['tfs'] = lmer_boot_tfce[0]
-    res['pfs'] = lmer_boot_p_tfce[0]
+    res['tfs'] = lmer_tfce_tvals[0]
+    res['pfs'] = lmer_tfce_p
     res['time'] = method_time
     all_res.append(res)
     
