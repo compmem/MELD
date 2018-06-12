@@ -510,7 +510,7 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
                  feat_nboot=1000,feat_thresh=0.1,connectivity=None,asims_dd=asims_dd,E=2/3.,
                  H=2.0, data=None, backend="multiprocessing"):
 
-    #generate data, now with the option to accept external data
+#generate data, now with the option to accept external data
     if data is None:
         (ind_data,dep_data,sn_stats) = msg.gen_data(nsubj,nobs,nfeat,slope,signal,
                                             mnoise=mnoise,contvar=contvar,
@@ -577,7 +577,7 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
         try:
             perms = me_s._perms
         except NameError:
-            perms = nperms
+            perms = mrs['nperms']
         start = time.time()
         # Run Meld
         me_s = meld.MELD(fe_formula, re_formula, 'subj',
@@ -589,7 +589,10 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
                 n_jobs=n_jobs)
 
         res_base['model'] = me_s._formula_str,
-        me_s.run_perms(mrs['nperms'])
+        if 'fe_flip' in mrs['method']:
+            me_s.run_perms(perms)
+        else:
+            me_s.run_perms(mrs['nperms'])
         method_time = time.time() - start
         # Save out meld maps and error terms
         me_terms = me_s.terms
@@ -732,6 +735,7 @@ if __name__=='__main__':
     parser.add_argument('--Ss', nargs = "+")
     parser.add_argument('--prop', default=0.5)
     parser.add_argument('--nboots', default = 500)
+    parser.add_argument('--nperms', default = 500)
     parser.add_argument('--fvar_nboot', default = "nsubj")
     parser.add_argument('--nruns', default = 1)
     parser.add_argument('--n_jobs', default = 2)
@@ -749,6 +753,7 @@ if __name__=='__main__':
     signal_name = str(args.signal_name)
     prop = float(args.prop)
     nboots = int(args.nboots)
+    nperms = int(args.nperms)
     nruns = int(args.nruns)
     n_jobs = int(args.n_jobs)
     backend = str(args.backend)
@@ -849,7 +854,7 @@ if __name__=='__main__':
                             res = test_sim_dat(nsubj,nobs,slope,signal,signal_name,run,prop,mnoise=mnoise,
                                                contvar=contvar,item_inds=item_inds,
                                                mod_mnoise=mod_mnoise,mod_cont=mod_cont,
-                                               nfeat=nfeat,n_jobs=n_jobs,nboots=nboots,fvar_nboot=fvar_nboot,
+                                               nfeat=nfeat,n_jobs=n_jobs,nboots=nboots,fvar_nboot=fvar_nboot,nperms=nperms,
                                                I=I,S=S,
                                                feat_thresh=feat_thresh,
                                                data=None, backend="multiprocessing")
