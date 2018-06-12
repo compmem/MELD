@@ -545,21 +545,6 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
     # make list of subjects
     subjs = np.unique(ind_data['subj'])
 
-    # Run Meld   
-    me_s = meld.MELD(fe_formula, re_formula, 'subj',
-                dep_data, ind_data, factors = fact_dict,
-                use_ranks=False,
-                feat_nboot=500, feat_thresh=0.05,
-                do_tfce=True,
-                E=E, H=H,
-                n_jobs=n_jobs)
-
-    me_s.run_boots(nboots, fvar_nboot)
-    #me_s.run_perms(nboots)
-
-    # Save out boots
-    boots = me_s._boots
-
     # instatiate result list
     all_res =  []
     res_base = {'slope':slope,
@@ -578,15 +563,15 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
                'sn_stats':sn_stats,
                'model':me_s._formula_str,
                'glm_model':fe_formula,
-               #'nperms':nperms,
-               'fvar_nboot':fvar_nboot,
-               'nboots':nboots,
+               'nperms':nperms,
                'alpha':pthr,
                }
 
     # Run all the flavors of meld
-    meld_run_settings = [{'method': 'meld_perm','feat_thresh':0.05,'nperms':nperms, 'do_tfce': True, 'tfce_svd':True},
-                         {'method': 'meld_perm_notfce','feat_thresh':0.05,'nperms':nperms, 'do_tfce': False, 'tfce_svd':True}]
+    meld_run_settings = [{'method': 'meld_fe_flip','feat_thresh':0.05,'nperms':nperms, 'do_tfce': True, 'fe_flip':'beh', 'fe_flip_level':'item'},
+                         {'method': 'meld_fe_flip_notfce','feat_thresh':0.05,'nperms':nperms, 'do_tfce': False, 'fe_flip':'beh', 'fe_flip_level':'item'},
+                         {'method': 'meld_perm','feat_thresh':0.05,'nperms':nperms, 'do_tfce': True, 'fe_flip':None, 'fe_flip_level':None},
+                         {'method': 'meld_perm_notfce','feat_thresh':0.05,'nperms':nperms, 'do_tfce': False, 'fe_flip':None, 'fe_flip_level':None}]
     perms = None
     for mrs in meld_run_settings:
         try:
@@ -604,13 +589,7 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
                 n_jobs=n_jobs)
 
         res_base['model'] = me_s._formula_str,
-        try:
-            me_s.run_perms(mrs['nboots'], mrs['fvar_nboot'])
-            #me_s.run_perms(nboots)
-            if boots is None:
-                boots = me_s._boots
-        except KeyError:
-            me_s.run_perms(mrs['nperms'])
+        me_s.run_perms(mrs['nperms'])
         method_time = time.time() - start
         # Save out meld maps and error terms
         me_terms = me_s.terms
@@ -737,7 +716,6 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
     res['pfs'] = lmer_tfce_p
     res['time'] = method_time
     all_res.append(res)
-    
     return all_res
 
 if __name__=='__main__':
