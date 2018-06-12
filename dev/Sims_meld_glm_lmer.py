@@ -584,42 +584,6 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
                'alpha':pthr,
                }
 
-<<<<<<< HEAD
-    # Save out meld maps and error terms
-    me_terms = me_s.terms
-    me_t_terms = me_s.t_terms
-    me_tfs = me_s.t_features
-    me_pfs = me_s.get_p_features(do_tfce=False)
-
-    statmap = 1-me_pfs['beh']
-
-    res = res_base.copy()
-    res.update({'method': 'meld',
-                'tfce': False,
-                })
-    res.update(get_metrics(statmap,'beh', pthr, signal))
-    res['betas']  = me_s._bb[0]['beh']
-    res['tfs'] = me_tfs['beh']
-    res['pfs'] = me_pfs['beh']
-    res['tterm'] = me_s.t_terms['beh']
-    all_res.append(res)
-
-    me_pfs_tfce = me_s.get_p_features(do_tfce=True)
-    statmap = 1-me_pfs_tfce['beh']
-
-    res = res_base.copy()
-    res.update({'method': 'meld',
-                'tfce': True})
-    res.update(get_metrics(statmap,'beh', pthr, signal ))
-    res['tfs'] = tfce.tfce(me_tfs['beh'])
-    res['pfs'] = me_pfs_tfce['beh']
-    res['tterm'] = me_s.t_terms['beh']
-    all_res.append(res)
-
-    # Run meld without inner TFCE to make Anderson happy
-    print("running MELD without inner TFCE", flush=True)
-    me_sb = meld.MELD(fe_formula, re_formula, 'subj',
-=======
     # Run all the flavors of meld
     meld_run_settings = [{'method': 'meld_perm','feat_thresh':0.05,'nperms':nperms, 'do_tfce': True, 'tfce_svd':True},
                          {'method': 'meld_perm_notfce','feat_thresh':0.05,'nperms':nperms, 'do_tfce': False, 'tfce_svd':True}]
@@ -652,24 +616,21 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
         me_terms = me_s.terms
         me_t_terms = me_s.t_terms
         me_tfs = me_s.t_features
-        for ptfce in [False, True]:
-            me_pfs = me_s.get_p_features(do_tfce=ptfce)
-            if ptfce:
-                me_tfs['beh'] = tfce.tfce(me_tfs['beh'])
+        me_pfs = me_s.get_p_features()
 
-            statmap = 1-me_pfs['beh']
+        statmap = 1-me_pfs['beh']
 
-            res = res_base.copy()
-            res.update({'method': mrs['method'],
-                        'tfce': ptfce,
-                        })
-            res.update(get_metrics(statmap,'beh', pthr, signal))
-            res['betas']  = me_s._bb[0]['beh']
-            res['tfs'] = me_tfs['beh']
-            res['pfs'] = me_pfs['beh']
-            res['tterm'] = me_s.t_terms['beh']
-            res['time'] = method_time
-            all_res.append(res)
+        res = res_base.copy()
+        res.update({'method': mrs['method'],
+                    'tfce': False,
+                    })
+        res.update(get_metrics(statmap,'beh', pthr, signal))
+        res['betas']  = me_s._bb[0]['beh']
+        res['tfs'] = me_tfs['beh']
+        res['pfs'] = me_pfs['beh']
+        res['tterm'] = me_s.t_terms['beh']
+        res['time'] = method_time
+        all_res.append(res)
 
     # Run GLM analysis
     print("fitting GLM", flush=True)
