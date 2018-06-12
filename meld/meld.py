@@ -609,7 +609,8 @@ def _eval_model(model_id, perm=None, boot=None):
         res.append((temp_b, temp_t, temp_ll))
 
         # must make ss, too
-        ss = np.array([1.0])
+        ss = np.zeros(len(Vh))
+        ss[0] = 1
         # print "perm fail"
 
     # pull out data from all the components

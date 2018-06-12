@@ -581,7 +581,7 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
         # Run Meld
         me_s = meld.MELD(fe_formula, re_formula, 'subj',
                 dep_data, ind_data, factors = fact_dict,
-                use_ranks=False, fe_flip='beh', fe_flip_level = 'item',
+                use_ranks=False, fe_flip=mrs['fe_flip'], fe_flip_level = mrs['fe_flip_level'],
                 feat_nboot=500, feat_thresh=0.05,
                 do_tfce=False,
                 E=E, H=H,
