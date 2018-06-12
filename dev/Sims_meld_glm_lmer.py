@@ -445,12 +445,10 @@ def run_lmer_perm(perm, ind_data, lmer_dep_data, formula, variables):
     flat_perm = []
     for sid in np.unique(ind_data['subj']):
         flat_perm.extend(perm[sid])
-    perm_ind = ind_data.copy()
-    perm_ind['beh'] = flat_perm
 
     lmer_betas = []
     lmer_tvals = []
-    lm = LMER(formula, perm_ind)
+    lm = LMER(formula, ind_data)
     flat_dep_data = lmer_dep_data.reshape(lmer_dep_data.shape[0], -1)
     res = []
     feat_betas = []
@@ -458,7 +456,7 @@ def run_lmer_perm(perm, ind_data, lmer_dep_data, formula, variables):
     for i in np.arange(flat_dep_data.shape[-1]):
         betas = np.zeros(len(variables))
         tvals = np.zeros(len(variables))
-        _betas, _tvals, _log_likes = lm.run(vals=flat_dep_data[:,i])
+        _betas, _tvals, _log_likes = lm.run(vals=flat_dep_data[flat_perm,i])
         for j, var in enumerate(variables):
             betas[j] = _betas[var]
             tvals[j] = _tvals[var]
@@ -567,9 +565,7 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
                }
 
     # Run all the flavors of meld
-    meld_run_settings = [{'method': 'meld_fe_flip','feat_thresh':0.05,'nperms':nperms, 'do_tfce': True, 'fe_flip':'beh', 'fe_flip_level':'item'},
-                         {'method': 'meld_fe_flip_notfce','feat_thresh':0.05,'nperms':nperms, 'do_tfce': False, 'fe_flip':'beh', 'fe_flip_level':'item'},
-                         {'method': 'meld_perm','feat_thresh':0.05,'nperms':nperms, 'do_tfce': True, 'fe_flip':None, 'fe_flip_level':None},
+    meld_run_settings = [{'method': 'meld_perm','feat_thresh':0.05,'nperms':nperms, 'do_tfce': True, 'fe_flip':None, 'fe_flip_level':None},
                          {'method': 'meld_perm_notfce','feat_thresh':0.05,'nperms':nperms, 'do_tfce': False, 'fe_flip':None, 'fe_flip_level':None}]
     perms = None
     for mrs in meld_run_settings:
