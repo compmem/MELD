@@ -402,7 +402,7 @@ def run_lmer(lmer_id, vals, variables):
     betas = np.zeros(len(variables))
     tvals = np.zeros(len(variables))
     for i,b in (enumerate(betas)):
-        _resds, _betas, _tvals, _log_likes = lm.run(vals=vals)
+        _betas, _tvals, _log_likes = lm.run(vals=vals)
         for j, var in enumerate(variables):
             betas[j] = _betas[var]
             tvals[j] = _tvals[var]
@@ -458,7 +458,7 @@ def run_lmer_perm(perm, ind_data, lmer_dep_data, formula, variables):
     for i in np.arange(flat_dep_data.shape[-1]):
         betas = np.zeros(len(variables))
         tvals = np.zeros(len(variables))
-        _resds, _betas, _tvals, _log_likes = lm.run(vals=flat_dep_data[:,i])
+        _betas, _tvals, _log_likes = lm.run(vals=flat_dep_data[:,i])
         for j, var in enumerate(variables):
             betas[j] = _betas[var]
             tvals[j] = _tvals[var]
@@ -561,7 +561,6 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
                'mod_mnoise':mod_mnoise,
                'mod_cont':mod_cont,
                'sn_stats':sn_stats,
-               'model':me_s._formula_str,
                'glm_model':fe_formula,
                'nperms':nperms,
                'alpha':pthr,
