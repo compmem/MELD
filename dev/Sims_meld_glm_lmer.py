@@ -565,8 +565,8 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
                }
 
     # Run all the flavors of meld
-    meld_run_settings = [{'method': 'meld_perm','feat_thresh':0.05,'nperms':nperms, 'do_tfce': True, 'fe_flip':None, 'fe_flip_level':None},
-                         {'method': 'meld_perm_notfce','feat_thresh':0.05,'nperms':nperms, 'do_tfce': False, 'fe_flip':None, 'fe_flip_level':None}]
+    meld_run_settings = [{'method': 'meld_perm','feat_thresh':0.05,'nperms':nperms, 'do_tfce': True},
+                         {'method': 'meld_perm_notfce','feat_thresh':0.05,'nperms':nperms, 'do_tfce': False}]
     perms = None
     for mrs in meld_run_settings:
         try:
@@ -577,7 +577,7 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
         # Run Meld
         me_s = meld.MELD(fe_formula, re_formula, 'subj',
                 dep_data, ind_data, factors = fact_dict,
-                use_ranks=False, fe_flip=mrs['fe_flip'], fe_flip_level = mrs['fe_flip_level'],
+                use_ranks=False, 
                 feat_nboot=500, feat_thresh=0.05,
                 do_tfce=False,
                 E=E, H=H,
