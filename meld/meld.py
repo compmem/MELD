@@ -582,32 +582,39 @@ def _eval_model(model_id, perm=None):
         # must make ss, too
         ss = np.array([1.0])
         # print "perm fail"
+        ts = np.rec.fromarrays([0.0
+                                for k in temp_t.dtype.names],
+                               names=','.join(temp_t.dtype.names))
+        tfs = []
+        for k in temp_t.dtype.names:
+            tfs.append(np.zeros((1, *Vh.shape[1:])))
+        tfs = np.rec.fromarrays(tfs, names=','.join(temp_t.dtype.names))
+    else:
+        # pull out data from all the components
+        tvals, log_likes = zip(*res)
+        tvals = np.concatenate(tvals)
+        log_likes = np.concatenate(log_likes)
 
-    # pull out data from all the components
-    tvals, log_likes = zip(*res)
-    tvals = np.concatenate(tvals)
-    log_likes = np.concatenate(log_likes)
+        # recombine and scale the tvals across components
+        ts = np.rec.fromarrays([np.dot(tvals[k],
+                                       ss[ss > 0.0] / _ss)  # /(ss>0.).sum()
+                                for k in tvals.dtype.names],
+                               names=','.join(tvals.dtype.names))
 
-    # recombine and scale the tvals across components
-    ts = np.rec.fromarrays([np.dot(tvals[k],
-                                   ss[ss > 0.0] / _ss)  # /(ss>0.).sum()
-                            for k in tvals.dtype.names],
-                           names=','.join(tvals.dtype.names))
-
-    # scale tvals across features
-    tfs = []
-    for k in tvals.dtype.names:
-        # tfs.append(np.dot(tvals[k],
-        #                   np.dot(diagsvd(ss[ss > 0],
-        #                                  len(ss[ss > 0]),
-        #                                  len(ss[ss > 0])),
-        #                          Vh[ss > 0, ...])))  # /(ss>0).sum())
-        tfs.append(blockwise_dot(tvals[k],
-                                 blockwise_dot(diagsvd(ss[ss > 0],
-                                         len(ss[ss > 0]),
-                                         len(ss[ss > 0])),
-                                 Vh[ss > 0, ...])))
-    tfs = np.rec.fromarrays(tfs, names=','.join(tvals.dtype.names))
+        # scale tvals across features
+        tfs = []
+        for k in tvals.dtype.names:
+            # tfs.append(np.dot(tvals[k],
+            #                   np.dot(diagsvd(ss[ss > 0],
+            #                                  len(ss[ss > 0]),
+            #                                  len(ss[ss > 0])),
+            #                          Vh[ss > 0, ...])))  # /(ss>0).sum())
+            tfs.append(blockwise_dot(tvals[k],
+                                     blockwise_dot(diagsvd(ss[ss > 0],
+                                             len(ss[ss > 0]),
+                                             len(ss[ss > 0])),
+                                     Vh[ss > 0, ...])))
+        tfs = np.rec.fromarrays(tfs, names=','.join(tvals.dtype.names))
 
     # decide what to return
     if perm is None:
