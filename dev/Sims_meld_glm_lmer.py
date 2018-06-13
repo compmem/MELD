@@ -399,14 +399,12 @@ def eval_glm_subjs(fe_formula, ind_data, dep_data, single_subject_res=None, boot
 
 def run_lmer(lmer_id, vals, variables):
     lm = _global_lmer[lmer_id]
-    betas = np.zeros(len(variables))
     tvals = np.zeros(len(variables))
-    for i,b in (enumerate(betas)):
-        _betas, _tvals, _log_likes = lm.run(vals=vals)
+    for i,b in (enumerate(tvals)):
+        _tvals, _log_likes = lm.run(vals=vals)
         for j, var in enumerate(variables):
-            betas[j] = _betas[var]
             tvals[j] = _tvals[var]
-    return betas,tvals
+    return tvals
 
 def run_lmer_boot(boot, ind_data, lmer_dep_data, formula, variables):
     boot_ind = []
@@ -446,25 +444,19 @@ def run_lmer_perm(perm, ind_data, lmer_dep_data, formula, variables):
     for sid in np.unique(ind_data['subj']):
         flat_perm.extend(perm[sid])
 
-    lmer_betas = []
     lmer_tvals = []
     lm = LMER(formula, ind_data)
     flat_dep_data = lmer_dep_data.reshape(lmer_dep_data.shape[0], -1)
     res = []
-    feat_betas = []
     feat_tvals = []
     for i in np.arange(flat_dep_data.shape[-1]):
-        betas = np.zeros(len(variables))
         tvals = np.zeros(len(variables))
-        _betas, _tvals, _log_likes = lm.run(vals=flat_dep_data[flat_perm,i])
+        _tvals, _log_likes = lm.run(vals=flat_dep_data[flat_perm,i])
         for j, var in enumerate(variables):
-            betas[j] = _betas[var]
             tvals[j] = _tvals[var]
-        feat_betas.append(betas)
         feat_tvals.append(tvals)
-    lmer_betas.extend(np.array(feat_betas).squeeze().T.reshape( *lmer_dep_data.shape[1:]))
     lmer_tvals.extend(np.array(feat_tvals).squeeze().T.reshape( *lmer_dep_data.shape[1:]))
-    return lmer_betas, lmer_tvals
+    return lmer_tvals
 
 
 def get_boot_p(stat, nperms, fvar_nboot, dep_data, do_tfce=False, E=0.6666666666, H=2):
@@ -602,7 +594,6 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
                     'tfce': False,
                     })
         res.update(get_metrics(statmap,'beh', pthr, signal))
-        res['betas']  = me_s._bb[0]['beh']
         res['tfs'] = me_tfs['beh']
         res['pfs'] = me_pfs['beh']
         res['tterm'] = me_s.t_terms['beh']
@@ -662,21 +653,17 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
             backend=backend,
             verbose=10)(delayed(run_lmer)(lm_id, flat_dep_data[:,i], ['beh'])
                         for i in np.arange(np.product(lmer_dep_data.shape[1:])))
-    lmer_betas.append(np.array(res).squeeze().T.reshape(2, *lmer_dep_data.shape[1:])[0])
-    lmer_tvals.append(np.array(res).squeeze().T.reshape(2, *lmer_dep_data.shape[1:])[1])
+    lmer_tvals.append(np.array(res).squeeze().T.reshape(*lmer_dep_data.shape[1:]))
 
     print("Starting LMERs", flush=True)
     # Run LMER on bootstraps
-    res = Parallel(n_jobs=n_jobs, backend=backend,verbose=10)(delayed(run_lmer_perm)
+    boot_lmer_tvals = Parallel(n_jobs=n_jobs, backend=backend,verbose=10)(delayed(run_lmer_perm)
                (perm, ind_data, lmer_dep_data, fe_formula+' + ' + re_formula, ['beh'])
                for perm in perms)
-    boot_lmer_betas, boot_lmer_tvals = zip(*res)
-    lmer_betas.extend(boot_lmer_betas)
     lmer_tvals.extend(boot_lmer_tvals)
 
     del _global_lmer
 
-    lmer_betas = np.array(lmer_betas)
     lmer_tvals = np.array(lmer_tvals)
 
     # get lmer feature pvalues
@@ -693,7 +680,6 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
     res.update(get_metrics(statmap,'beh', pthr, signal[50:52,29:56]))
     res['tfs'] = lmer_tvals[0]
     res['pfs'] = lmer_p
-    res['betas'] = lmer_betas[0]
     all_res.append(res)
 
     lmer_tfce_tvals = np.array([tfce.tfce(lt, param_e=E, param_h=H) for lt in lmer_tvals])
