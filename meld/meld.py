@@ -663,6 +663,7 @@ class MELD(object):
     """
     def __init__(self, fe_formula, re_formula,
                  re_group, dep_data, ind_data,
+                 re_cross_group=None,
                  factors=None, row_mask=None,
                  dep_mask=None,
                  use_ranks=False, use_norm=True,
@@ -742,6 +743,10 @@ class MELD(object):
         else:
             # groups need to be extracted from the recarray
             self._groups = np.unique(ind_data[re_group])
+
+        self._re_cross_group = re_cross_group
+        if re_cross_group is not None:
+            self._cross_groups = np.unique(ind_data[re_cross_group])
         for g in self._groups:
             # get that subj inds
             if isinstance(ind_data, dict):
@@ -962,12 +967,32 @@ class MELD(object):
             # gen the perms ahead of time
             perms = []
             for p in range(nperms):
-                ind = {}
-                for k in self._groups:
-                    # gen a perm for that subj
-                    ind[k] = np.random.permutation(len(self._A[k]))
+                if self._re_cross_group is None:
+                    ind = {}
+                    for k in self._groups:
+                        # gen a perm for that subj
+                        ind[k] = np.random.permutation(len(self._A[k]))
 
-                perms.append(ind)
+                    perms.append(ind)
+                else:
+                    # crossed random effects permutation
+                    cross_permed = np.random.permutation(self._cross_groups)
+                    cross_perms = {self._cross_groups[i]: cp for i, cp in enumerate(cross_permed)}
+                    ind = {}
+                    for sO in self._O:
+                        sinds = np.zeros(len(sO))
+                        for cg in self._cross_groups:
+                            cg_oind = np.where(sO[self._re_cross_group] == cg)[0]
+                            cg_nind = np.where(sO[self._re_cross_group] == cross_perms[cg])[0]
+                            try:
+                                sinds[cg_oind] = cg_nind[:len(cg_oind)]
+                            except ValueError:
+                                sinds[cg_oind[:len(cg_nind)]] = cg_nind
+                        k = np.unique(sO[self._re_group])
+                        assert len(k) == 1
+                        k = k[0]
+                        ind[k] = sinds.astype(int)
+                    perms.append(ind)
         else:
             # calc nperms
             nperms = len(perms)
