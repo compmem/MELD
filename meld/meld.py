@@ -463,8 +463,8 @@ def _eval_model(model_id, perm=None):
 
     # turn to Z
     # make sure we are not 1/-1
-    R_nocat[R_nocat > .9999] = .9999
-    R_nocat[R_nocat < -.9999] = -.9999
+    #R_nocat[R_nocat > .9999] = .9999
+    #R_nocat[R_nocat < -.9999] = -.9999
     R_nocat = np.arctanh(R_nocat)
 
     if mm._do_tfce:
@@ -503,12 +503,12 @@ def _eval_model(model_id, perm=None):
     U, s, Vh = np.linalg.svd(R, full_matrices=False)
 
     # fix near zero vals from SVD
-    Vh[np.abs(Vh) < (.00000001 * mm._dt)] = 0.0
-    s[np.abs(s) < .00000001] = 0.0
+    #Vh[np.abs(Vh) < (.00000001 * mm._dt)] = 0.0
+    #s[np.abs(s) < .00000001] = 0.0
 
     # calc prop of variance accounted for
-    if mm._ss is None:
-        # _ss = np.sqrt((s*s).sum())
+    if (mm._ss is None) or (mm._ss_perm_norm):
+         # _ss = np.sqrt((s*s).sum())
         _ss = s.sum()
     else:
         _ss = mm._ss
@@ -668,7 +668,7 @@ class MELD(object):
                  dep_mask=None,
                  use_ranks=False, use_norm=True,
                  memmap=False, memmap_dir=None,
-                 resid_formula=None,
+                 resid_formula=None, ss_perm_norm=True,
                  svd_terms=None, feat_thresh=0.05,
                  feat_nboot=1000, do_tfce=False,
                  connectivity=None, shape=None,
@@ -711,6 +711,7 @@ class MELD(object):
         self._feat_nboot = feat_nboot
         self._do_tfce = do_tfce
         self._connectivity = connectivity
+        self._ss_perm_norm = ss_perm_norm
         self._dt = dt
         self._E = E
         self._H = H

@@ -557,8 +557,14 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
                }
 
     # Run all the flavors of meld
-    meld_run_settings = [{'method': 'meld_perm','feat_thresh':0.05,'nperms':nperms, 'do_tfce': True},
-                         {'method': 'meld_perm_notfce','feat_thresh':0.05,'nperms':nperms, 'do_tfce': False}]
+    meld_run_settings = [{'method': 'meld_perm_sspn','ss_perm_norm':True,'feat_thresh':0.05,'nperms':nperms, 'do_tfce': True},
+                         {'method': 'meld_perm_sspn_notfce','ss_perm_norm':True,'feat_thresh':0.05,'nperms':nperms, 'do_tfce': False},
+                         {'method': 'meld_perm_sspn_no_mask','ss_perm_norm':True,'feat_thresh':1.0,'nperms':nperms, 'do_tfce': True},
+                         {'method': 'meld_perm_sspn_no_mask_notfce','ss_perm_norm':True,'feat_thresh':1.0,'nperms':nperms, 'do_tfce': False},
+                         {'method': 'meld_perm','ss_perm_norm':False,'feat_thresh':0.05,'nperms':nperms, 'do_tfce': True},
+                         {'method': 'meld_perm_notfce','ss_perm_norm':False,'feat_thresh':0.05,'nperms':nperms, 'do_tfce': False},
+                         {'method': 'meld_perm_no_mask','ss_perm_norm':False,'feat_thresh':1.0,'nperms':nperms, 'do_tfce': True},
+                         {'method': 'meld_perm_no_mask_notfce','ss_perm_norm':False,'feat_thresh':1.0,'nperms':nperms, 'do_tfce': False}]
     perms = None
     for mrs in meld_run_settings:
         try:
@@ -571,7 +577,7 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
                 dep_data, ind_data, factors = fact_dict,
                 use_ranks=False, re_cross_group='item',
                 feat_nboot=500, feat_thresh=mrs['feat_thresh'],
-                do_tfce=mrs['do_tfce'],
+                do_tfce=mrs['do_tfce'], ss_perm_norm=mrs['ss_perm_norm'],
                 E=E, H=H,
                 n_jobs=n_jobs)
 
