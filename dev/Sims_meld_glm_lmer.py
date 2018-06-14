@@ -569,7 +569,7 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
         # Run Meld
         me_s = meld.MELD(fe_formula, re_formula, 'subj',
                 dep_data, ind_data, factors = fact_dict,
-                use_ranks=False, 
+                use_ranks=False, re_cross_group='item',
                 feat_nboot=500, feat_thresh=mrs['feat_thresh'],
                 do_tfce=mrs['do_tfce'],
                 E=E, H=H,
