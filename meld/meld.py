@@ -463,8 +463,8 @@ def _eval_model(model_id, perm=None):
 
     # turn to Z
     # make sure we are not 1/-1
-    #R_nocat[R_nocat > .9999] = .9999
-    #R_nocat[R_nocat < -.9999] = -.9999
+    R_nocat[R_nocat > .9999] = .9999
+    R_nocat[R_nocat < -.9999] = -.9999
     R_nocat = np.arctanh(R_nocat)
 
     if mm._do_tfce:
@@ -503,8 +503,8 @@ def _eval_model(model_id, perm=None):
     U, s, Vh = np.linalg.svd(R, full_matrices=False)
 
     # fix near zero vals from SVD
-    #Vh[np.abs(Vh) < (.00000001 * mm._dt)] = 0.0
-    #s[np.abs(s) < .00000001] = 0.0
+    Vh[np.abs(Vh) < (.00000001 * mm._dt)] = 0.0
+    s[np.abs(s) < .00000001] = 0.0
 
     # calc prop of variance accounted for
     if (mm._ss is None) or (mm._ss_perm_norm):
