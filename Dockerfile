@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y python3-tk build-essential libglu1 gdb
 RUN pip3 install --upgrade pip \
     && pip3 --no-cache-dir install scipy scikit-learn matplotlib joblib==0.8.4 seaborn pandas tables statsmodels numba nilearn line_profiler Cython
 
-RUN mkdir /meld
+RUN mkdir /meld && mkdir /meld_work && mkdir /meld_work/work
 COPY . /meld
 
 RUN pip3 --no-cache-dir install /meld
