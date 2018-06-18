@@ -399,12 +399,14 @@ def eval_glm_subjs(fe_formula, ind_data, dep_data, single_subject_res=None, boot
 
 def run_lmer(lmer_id, vals, variables):
     lm = _global_lmer[lmer_id]
+    betas = np.zeros(len(variables))
     tvals = np.zeros(len(variables))
     for i,b in (enumerate(tvals)):
-        _tvals, _log_likes = lm.run(vals=vals)
+        _betas, _tvals, _log_likes = lm.run(vals=vals)
         for j, var in enumerate(variables):
             tvals[j] = _tvals[var]
-    return tvals
+            betas[j] = _betas[var]
+    return betas, tvals
 
 def run_lmer_boot(boot, ind_data, lmer_dep_data, formula, variables):
     boot_ind = []
@@ -557,12 +559,8 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
                }
 
     # Run all the flavors of meld
-    meld_run_settings = [{'method': 'meld_perm_sspn','ss_perm_norm':True,'feat_thresh':0.05,'nperms':nperms, 'do_tfce': True},
-                         {'method': 'meld_perm_sspn_notfce','ss_perm_norm':True,'feat_thresh':0.05,'nperms':nperms, 'do_tfce': False},
-                         {'method': 'meld_perm_sspn_no_mask','ss_perm_norm':True,'feat_thresh':1.0,'nperms':nperms, 'do_tfce': True},
+    meld_run_settings = [{'method': 'meld_perm_sspn_no_mask','ss_perm_norm':True,'feat_thresh':1.0,'nperms':nperms, 'do_tfce': True},
                          {'method': 'meld_perm_sspn_no_mask_notfce','ss_perm_norm':True,'feat_thresh':1.0,'nperms':nperms, 'do_tfce': False},
-                         {'method': 'meld_perm','ss_perm_norm':False,'feat_thresh':0.05,'nperms':nperms, 'do_tfce': True},
-                         {'method': 'meld_perm_notfce','ss_perm_norm':False,'feat_thresh':0.05,'nperms':nperms, 'do_tfce': False},
                          {'method': 'meld_perm_no_mask','ss_perm_norm':False,'feat_thresh':1.0,'nperms':nperms, 'do_tfce': True},
                          {'method': 'meld_perm_no_mask_notfce','ss_perm_norm':False,'feat_thresh':1.0,'nperms':nperms, 'do_tfce': False}]
     perms = None
@@ -592,16 +590,32 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
         me_t_terms = me_s.t_terms
         me_tfs = me_s.t_features
         me_pfs = me_s.get_p_features()
-
+        me_bfs = me_s.b_features
         statmap = 1-me_pfs['beh']
 
         res = res_base.copy()
         res.update({'method': mrs['method'],
                     'tfce': False,
                     })
-        res.update(get_metrics(statmap,'beh', pthr, signal))
+        res.update(get_metrics(statmap, 'beh', pthr, signal))
         res['tfs'] = me_tfs['beh']
         res['pfs'] = me_pfs['beh']
+        res['betas'] = me_bfs['beh']
+        res['tterm'] = me_s.t_terms['beh']
+        res['time'] = method_time
+        all_res.append(res)
+
+        me_pfs = me_s.get_p_features(use_b = True)
+        statmap = 1-me_pfs['beh']
+
+        res = res_base.copy()
+        res.update({'method': mrs['method']+'_bsig',
+                    'tfce': False,
+                    })
+        res.update(get_metrics(statmap, 'beh', pthr, signal))
+        res['tfs'] = me_tfs['beh']
+        res['pfs'] = me_pfs['beh']
+        res['betas'] = me_bfs['beh']
         res['tterm'] = me_s.t_terms['beh']
         res['time'] = method_time
         all_res.append(res)
@@ -645,7 +659,7 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
     all_res.append(res)
 
     # Run LMER on original data
-    lmer_dep_data = dep_data[:,50:52,29:56]
+    lmer_dep_data = dep_data
     lmer_betas = []
     lmer_tvals = []
     # Run lmer with real data
@@ -659,17 +673,19 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
             backend=backend,
             verbose=10)(delayed(run_lmer)(lm_id, flat_dep_data[:,i], ['beh'])
                         for i in np.arange(np.product(lmer_dep_data.shape[1:])))
-    lmer_tvals.append(np.array(res).squeeze().T.reshape(*lmer_dep_data.shape[1:]))
+    lmer_betas.append(np.array(res).squeeze().T.reshape(*lmer_dep_data.shape[1:])[0])
+    lmer_tvals.append(np.array(res).squeeze().T.reshape(*lmer_dep_data.shape[1:])[1])
 
     print("Starting LMERs", flush=True)
     # Run LMER on bootstraps
-    boot_lmer_tvals = Parallel(n_jobs=n_jobs, backend=backend,verbose=10)(delayed(run_lmer_perm)
+    lmer_betas, lmer_tvals = Parallel(n_jobs=n_jobs, backend=backend,verbose=10)(delayed(run_lmer_perm)
                (perm, ind_data, lmer_dep_data, fe_formula+' + ' + re_formula, ['beh'])
                for perm in perms)
-    lmer_tvals.extend(boot_lmer_tvals)
+    lmer_betas.extend(lmer_betas)
+    lmer_tvals.extend(lmer_tvals)
 
     del _global_lmer
-
+    lmer_betas = np.array(lmer_betas)
     lmer_tvals = np.array(lmer_tvals)
 
     # get lmer feature pvalues
@@ -685,26 +701,8 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
                 })
     res.update(get_metrics(statmap,'beh', pthr, signal[50:52,29:56]))
     res['tfs'] = lmer_tvals[0]
+    res['betas'] = lmer_betas[0]
     res['pfs'] = lmer_p
-    all_res.append(res)
-
-    lmer_tfce_tvals = np.array([tfce.tfce(lt, param_e=E, param_h=H) for lt in lmer_tvals])
-
-    # get lmer tfce features pvalues
-    nullTdist = lmer_tfce_tvals.reshape(lmer_tfce_tvals.shape[0], -1).max(1)
-    nullTdist.sort()
-    lmer_tfce_p = (((nperms+1)-np.searchsorted(nullTdist, lmer_tfce_tvals[0].flatten(), 'left')) /
-                          (nperms+1)).reshape(lmer_tvals.shape[1:])
-
-    res = res_base.copy()
-    res.update({'method': 'lmer',
-                'tfce': True,
-                })
-    statmap = 1-lmer_tfce_p
-    res.update(get_metrics(statmap,'beh', pthr, signal[50:52,29:56]))
-    res['tfs'] = lmer_tfce_tvals[0]
-    res['pfs'] = lmer_tfce_p
-    res['time'] = method_time
     all_res.append(res)
     return all_res
 

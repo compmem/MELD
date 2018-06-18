@@ -229,6 +229,7 @@ class LMER():
             #perms = [np.arange(len(self._rdf[self._col_ind]))]
 
         # run on each permutation
+        betas = None
         tvals = None
         log_likes = None
         for i, perm in enumerate(perms):
@@ -262,18 +263,20 @@ class LMER():
                 # init the data
                 # get the row names
                 rows = list(r['row.names'](df))
+                betas = np.rec.fromarrays([np.ones(len(perms))*np.nan
+                                           for ro in range(len(rows))],
+                                          names=','.join(rows))
                 tvals = np.rec.fromarrays([np.ones(len(perms))*np.nan
                                            for ro in range(len(rows))],
                                           names=','.join(rows))
                 log_likes = np.zeros(len(perms))
 
             # set the values
+            betas[i] = tuple(df.rx2('Estimate'))
             tvals[i] = tuple(df.rx2('t.value'))
             log_likes[i] = float(r['logLik'](ms)[0])
 
-        return tvals, log_likes
-
-
+        return betas, tvals, log_likes
 
 class OnlineVariance(object):
     """
@@ -463,9 +466,9 @@ def _eval_model(model_id, perm=None):
 
     # turn to Z
     # make sure we are not 1/-1
-    R_nocat[R_nocat > .9999] = .9999
-    R_nocat[R_nocat < -.9999] = -.9999
-    R_nocat = np.arctanh(R_nocat)
+    #R_nocat[R_nocat > .9999] = .9999
+    #R_nocat[R_nocat < -.9999] = -.9999
+    #R_nocat = np.arctanh(R_nocat)
 
     if mm._do_tfce:
         # run TFCE
@@ -501,10 +504,11 @@ def _eval_model(model_id, perm=None):
 
     # perform svd
     U, s, Vh = np.linalg.svd(R, full_matrices=False)
+    s = s**2
 
     # fix near zero vals from SVD
-    Vh[np.abs(Vh) < (.00000001 * mm._dt)] = 0.0
-    s[np.abs(s) < .00000001] = 0.0
+    #Vh[np.abs(Vh) < (.00000001 * mm._dt)] = 0.0
+    #s[np.abs(s) < .00000001] = 0.0
 
     # calc prop of variance accounted for
     if (mm._ss is None) or (mm._ss_perm_norm):
@@ -538,7 +542,11 @@ def _eval_model(model_id, perm=None):
         # flatten then weigh features via dot product
         Dw = np.concatenate([#np.dot(mm._D[k][ind[k]].copy(),Vh[i])
                              #blockwise_dot(mm._D[k][:][ind[k]], Vh[i])
-                             blockwise_dot(mm._D[k][ind[k]], Vh[i])
+                             blockwise_dot(mm._D[k][ind[k]],
+                                     blockwise_dot(diagsvd(((ss**2)/((ss**2).sum()))[ss > 0],
+                                             len(ss[ss > 0]),
+                                             len(ss[ss > 0])),
+                                     Vh[ss > 0, ...])[i])
                              for g, k in enumerate(mm._groups[ind_b])])
 
         # run the main model
@@ -551,11 +559,14 @@ def _eval_model(model_id, perm=None):
             mer = r['refit'](mer, FloatVector(Dw))
             df = r['data.frame'](r_coef(r['summary'](mer)))
             rows = list(r['row.names'](df))
+            new_betas = np.rec.fromarrays([[tv]
+                                           for tv in tuple(df.rx2('Estimate'))],
+                                          names=','.join(rows))
             new_tvals = np.rec.fromarrays([[tv]
                                            for tv in tuple(df.rx2('t.value'))],
                                           names=','.join(rows))
             new_ll = float(r['logLik'](mer)[0])
-            res.append((new_tvals, np.array([new_ll])))
+            res.append((new_betas, new_tvals, np.array([new_ll])))
 
     if len(res) == 0:
         # must make dummy data
@@ -572,7 +583,7 @@ def _eval_model(model_id, perm=None):
                         **mm._lmer_opts)
 
         Dw = np.random.randn(len(np.concatenate(O)))
-        temp_t, temp_ll = lmer.run(vals=Dw)
+        temp_b, temp_t, temp_ll = lmer.run(vals=Dw)
 
         for n in temp_t.dtype.names:
             temp_t[n] = 0.0
@@ -582,6 +593,9 @@ def _eval_model(model_id, perm=None):
         # must make ss, too
         ss = np.array([1.0])
         # print "perm fail"
+        bs = np.rec.fromarrays([0.0
+                                for k in temp_t.dtype.names],
+                               names=','.join(temp_t.dtype.names))
         ts = np.rec.fromarrays([0.0
                                 for k in temp_t.dtype.names],
                                names=','.join(temp_t.dtype.names))
@@ -589,19 +603,28 @@ def _eval_model(model_id, perm=None):
         for k in temp_t.dtype.names:
             tfs.append(np.zeros((1, *Vh.shape[1:])))
         tfs = np.rec.fromarrays(tfs, names=','.join(temp_t.dtype.names))
+        bfs = []
+        for k in temp_t.dtype.names:
+            bfs.append(np.zeros((1, *Vh.shape[1:])))
+        bfs = np.rec.fromarrays(tfs, names=','.join(temp_t.dtype.names))
     else:
         # pull out data from all the components
-        tvals, log_likes = zip(*res)
+        betas, tvals, log_likes = zip(*res)
+        betas = np.concatenate(betas)
         tvals = np.concatenate(tvals)
         log_likes = np.concatenate(log_likes)
 
         # recombine and scale the tvals across components
+        bs = np.rec.fromarrays([np.dot(betas[k], ss[ss > 0.0] / _ss)  # /(ss>0.).sum()
+                            for k in tvals.dtype.names],
+                           names=','.join(tvals.dtype.names))
         ts = np.rec.fromarrays([np.dot(tvals[k],
                                        ss[ss > 0.0] / _ss)  # /(ss>0.).sum()
                                 for k in tvals.dtype.names],
                                names=','.join(tvals.dtype.names))
 
         # scale tvals across features
+        bfs = []
         tfs = []
         for k in tvals.dtype.names:
             # tfs.append(np.dot(tvals[k],
@@ -609,20 +632,23 @@ def _eval_model(model_id, perm=None):
             #                                  len(ss[ss > 0]),
             #                                  len(ss[ss > 0])),
             #                          Vh[ss > 0, ...])))  # /(ss>0).sum())
+            bfs.append(blockwise_dot(betas[k],
+                                     Vh[ss > 0, ...]))
             tfs.append(blockwise_dot(tvals[k],
                                      blockwise_dot(diagsvd(ss[ss > 0],
                                              len(ss[ss > 0]),
                                              len(ss[ss > 0])),
                                      Vh[ss > 0, ...])))
+        bfs = np.rec.fromarrays(bfs, names=','.join(tvals.dtype.names))
         tfs = np.rec.fromarrays(tfs, names=','.join(tvals.dtype.names))
 
     # decide what to return
     if perm is None:
         # return tvals, tfs, and R for actual non-permuted data
-        out = (ts, tfs, _R, feat_mask, _ss, mer)
+        out = (bs, bfs, ts, tfs, _R, feat_mask, _ss, mer)
     else:
         # return the tvals for the terms
-        out = (ts, tfs, ~feat_mask[0])
+        out = (bs, bfs, ts, tfs, ~feat_mask[0])
 
     return out
 
@@ -891,6 +917,8 @@ class MELD(object):
 
         # prepare for the perms and boots and jackknife
         self._perms = []
+        self._bp = []
+        self._bb = []
         self._tp = []
         self._tb = []
         self._tj = []
@@ -909,8 +937,10 @@ class MELD(object):
         self._R = None
         self._ss = None
         self._mer = None
-        tp, tb, R, feat_mask, ss, mer = _eval_model(id(self), None)
+        bp, bb, tp, tb, R, feat_mask, ss, mer = _eval_model(id(self), None)
         self._R = R
+        self._bp.append(bp)
+        self._bb.append(bb)
         self._tp.append(tp)
         self._tb.append(tb)
         self._feat_mask = feat_mask
@@ -1011,7 +1041,9 @@ class MELD(object):
                        # backend='threading',
                        verbose=verbose)(delayed(_eval_model)(id(self), perm)
                                         for perm in perms)
-        tp, tfs, feat_mask = zip(*res)
+        bp, bfs, tp, tfs, feat_mask = zip(*res)
+        self._bp.extend(bp)
+        self._bb.extend(bfs)
         self._tp.extend(tp)
         self._tb.extend(tfs)
         self._pfmask.extend(feat_mask)
@@ -1032,6 +1064,10 @@ class MELD(object):
     def t_features(self):
         return self.get_t_features()
 
+    @property
+    def b_features(self):
+        return self.get_b_features()
+
     def get_t_features(self, names=None):
         if names is None:
             names = [n for n in self.terms
@@ -1041,14 +1077,28 @@ class MELD(object):
             tfeat = np.zeros(self._feat_shape)
             tfeat[self._dep_mask] = self._tb[0][n][0]
             tfeats.append(tfeat)
+        return np.rec.fromarrays(tfeats, names=','.join(names)) 
+
+    def get_b_features(self, names=None):
+        if names is None:
+            names = [n for n in self.terms
+                     if n != '(Intercept)']
+        tfeats = []
+        for n in names:
+            tfeat = np.zeros(self._feat_shape)
+            tfeat[self._dep_mask] = self._bb[0][n][0]
+            tfeats.append(tfeat)
         return np.rec.fromarrays(tfeats, names=','.join(names))
 
     @property
     def p_features(self):
         return self.get_p_features()
 
-    def get_p_features(self, names=None, conj=None):
-        tpf = self._tb[0].__array_wrap__(np.hstack(self._tb))
+    def get_p_features(self, names=None, conj=None, use_b=False):
+        if use_b:
+            tpf = self._bb[0].__array_wrap__(np.hstack(self._tb))
+        else:
+            tpf = self._tb[0].__array_wrap__(np.hstack(self._tb))
         pfmasks = np.array(self._pfmask).transpose((1, 0, 2))
         nperms = np.float(len(self._perms)+1)
 
