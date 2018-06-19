@@ -687,9 +687,9 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
     res = Parallel(n_jobs=n_jobs, backend=backend,verbose=10)(delayed(run_lmer_perm)
                (perm, ind_data, lmer_dep_data, fe_formula+' + ' + re_formula, ['beh'])
                for perm in perms)
-    lmer_betas, lmer_tvals = zip(*res)
-    lmer_betas.extend(lmer_betas)
-    lmer_tvals.extend(lmer_tvals)
+    lmer_perm_betas, lmer_perm_tvals = zip(*res)
+    lmer_betas.extend(lmer_perm_betas)
+    lmer_tvals.extend(lmer_perm_tvals)
 
     del _global_lmer
     lmer_betas = np.array(lmer_betas)
@@ -706,7 +706,7 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
     res.update({'method': 'lmer',
                 'tfce': False,
                 })
-    res.update(get_metrics(statmap,'beh', pthr, signal[50:52,29:56]))
+    res.update(get_metrics(statmap,'beh', pthr, signal))
     res['tfs'] = lmer_tvals[0]
     res['betas'] = lmer_betas[0]
     res['pfs'] = lmer_p
