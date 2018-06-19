@@ -447,18 +447,24 @@ def run_lmer_perm(perm, ind_data, lmer_dep_data, formula, variables):
         flat_perm.extend(perm[sid])
 
     lmer_tvals = []
+    lmer_betas = []
     lm = LMER(formula, ind_data)
     flat_dep_data = lmer_dep_data.reshape(lmer_dep_data.shape[0], -1)
     res = []
+    feat_betas = []
     feat_tvals = []
     for i in np.arange(flat_dep_data.shape[-1]):
         tvals = np.zeros(len(variables))
-        _tvals, _log_likes = lm.run(vals=flat_dep_data[flat_perm,i])
+        betas = np.zeros(len(variables))
+        _betas, _tvals, _log_likes = lm.run(vals=flat_dep_data[flat_perm,i])
         for j, var in enumerate(variables):
+            betas[j] = _betas[var]
             tvals[j] = _tvals[var]
         feat_tvals.append(tvals)
+        feat_betas.append(betas)
+    lmer_betas.extend(np.array(feat_betas).squeeze().T.reshape( *lmer_dep_data.shape[1:]))
     lmer_tvals.extend(np.array(feat_tvals).squeeze().T.reshape( *lmer_dep_data.shape[1:]))
-    return lmer_tvals
+    return lmer_betas,lmer_tvals
 
 
 def get_boot_p(stat, nperms, fvar_nboot, dep_data, do_tfce=False, E=0.6666666666, H=2):
@@ -673,14 +679,15 @@ def test_sim_dat(nsubj,nobs,slope,signal,signal_name,run_n,prop,mnoise=False,con
             backend=backend,
             verbose=10)(delayed(run_lmer)(lm_id, flat_dep_data[:,i], ['beh'])
                         for i in np.arange(np.product(lmer_dep_data.shape[1:])))
-    lmer_betas.append(np.array(res).squeeze().T.reshape(*lmer_dep_data.shape[1:])[0])
-    lmer_tvals.append(np.array(res).squeeze().T.reshape(*lmer_dep_data.shape[1:])[1])
+    lmer_betas.append(np.array(res).squeeze().T.reshape(2,*lmer_dep_data.shape[1:])[0])
+    lmer_tvals.append(np.array(res).squeeze().T.reshape(2,*lmer_dep_data.shape[1:])[1])
 
     print("Starting LMERs", flush=True)
     # Run LMER on bootstraps
-    lmer_betas, lmer_tvals = Parallel(n_jobs=n_jobs, backend=backend,verbose=10)(delayed(run_lmer_perm)
+    res = Parallel(n_jobs=n_jobs, backend=backend,verbose=10)(delayed(run_lmer_perm)
                (perm, ind_data, lmer_dep_data, fe_formula+' + ' + re_formula, ['beh'])
                for perm in perms)
+    lmer_betas, lmer_tvals = zip(*res)
     lmer_betas.extend(lmer_betas)
     lmer_tvals.extend(lmer_tvals)
 
